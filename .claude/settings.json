@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty') && echo \"$f\" | grep -qE '\\.py$' || exit 0; export PATH=/home/kgs/projects/windows-navigator/.venv/bin:$PATH; make -C /home/kgs/projects/windows-navigator lint; make -C /home/kgs/projects/windows-navigator test; true",
+            "timeout": 120,
+            "statusMessage": "Linting and testing..."
+          }
+        ]
+      }
+    ]
+  }
+}

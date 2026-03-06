@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "windows-navigator"
+version = "0.1.0"
+description = "Keyboard-driven window switcher for Windows"
+requires-python = ">=3.11"
+dependencies = [
+    "darkdetect>=0.8",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# Windows-only runtime dependencies (install on Windows: pip install -e ".[windows]")
+windows = [
+    "pywin32>=306",
+    "pystray>=0.19",
+    "pyvda>=0.3",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+windows-navigator = "windows_navigator.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

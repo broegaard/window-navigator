@@ -1,0 +1,882 @@
+"""Tkinter overlay window for the Windows Navigator."""
+
+from __future__ import annotations
+
+import threading
+import tkinter as tk
+from typing import TYPE_CHECKING, Callable
+
+try:
+    import darkdetect
+
+    _DARK = darkdetect.isDark() or False
+except Exception:
+    _DARK = False
+
+try:
+    from PIL import ImageTk
+
+    _HAS_PIL = True
+except ImportError:
+    _HAS_PIL = False
+
+from windows_navigator.activation import _force_foreground, _get_cursor_monitor_workarea
+from windows_navigator.controller import OverlayController, OverlayControllerProtocol
+from windows_navigator.filter import parse_query
+from windows_navigator.models import TabInfo, WindowInfo
+from windows_navigator.theme import desktop_badge_color as _desktop_badge_color
+
+if TYPE_CHECKING:
+    pass
+
+# ---------------------------------------------------------------------------
+# Layout
+# ---------------------------------------------------------------------------
+
+_OVERLAY_WIDTH = 1240
+_MAX_ROWS_VISIBLE = 10
+_ROW_HEIGHT = 44
+_TAB_ROW_HEIGHT = 28  # leaf (tab) rows are slimmer than window rows
+_ICON_SIZE = 32
+_ICON_PAD_X = 8
+_ICON_PAD_Y = (_ROW_HEIGHT - _ICON_SIZE) // 2
+_BADGE_W = 22  # desktop number badge — square, same height as width
+_TEXT_X = _ICON_PAD_X + _ICON_SIZE + 2 + _BADGE_W + 4  # icon + gap + badge + gap
+_TITLE_Y = 7
+_PROC_Y = 24
+_NOTIF_COLOR = "#f9a825"  # amber
+_NOTIF_BELL_CHAR = "🔔"
+_NOTIF_BELL_FONT = ("Segoe UI Emoji", 11)
+_BADGE_ENTRY_SIZE = 22  # px — square size for all entry-bar badges (desktop + bell)
+
+# Icon strip (between entry and window list)
+_STRIP_HEIGHT = _ICON_SIZE + 12  # 44 px — icon + top/bottom padding
+_STRIP_SLOT_W = _ICON_SIZE + 12  # 44 px — horizontal room per icon slot
+_STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
+_STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
+
+# ---------------------------------------------------------------------------
+# Colour palettes
+# ---------------------------------------------------------------------------
+
+_PALETTE: dict[str, dict[str, str]] = {
+    "dark": {
+        "bg": "#1e1e2e",
+        "row_bg": "#1e1e2e",
+        "tab_bg": "#252538",  # slightly lighter/bluer than row_bg
+        "row_sel": "#3d405b",
+        "title_fg": "#cdd6f4",
+        "proc_fg": "#a6adc8",
+        "entry_bg": "#313244",
+        "entry_fg": "#cdd6f4",
+        "border": "#45475a",
+    },
+    "light": {
+        "bg": "#f5f5f5",
+        "row_bg": "#f5f5f5",
+        "tab_bg": "#ebebf2",  # slightly darker/cooler than row_bg
+        "row_sel": "#c8d0e7",
+        "title_fg": "#1e1e2e",
+        "proc_fg": "#4c4f69",
+        "entry_bg": "#ffffff",
+        "entry_fg": "#1e1e2e",
+        "border": "#bcc0cc",
+    },
+}
+
+
+def _colors() -> dict[str, str]:
+    return _PALETTE["dark"] if _DARK else _PALETTE["light"]
+
+
+def _row_height(item: WindowInfo | TabInfo) -> int:
+    return _TAB_ROW_HEIGHT if isinstance(item, TabInfo) else _ROW_HEIGHT
+
+
+# ---------------------------------------------------------------------------
+# Overlay
+# ---------------------------------------------------------------------------
+
+
+class NavigatorOverlay:
+    """Tkinter-based overlay window. Must only be used from the Tk main thread."""
+
+    def __init__(
+        self,
+        root: tk.Tk,
+        on_activate: Callable[[int], None],
+        on_move: Callable[[int], None],
+        controller_factory: Callable[[list[WindowInfo]], OverlayControllerProtocol] | None = None,
+    ) -> None:
+        self._root = root
+        self._on_activate = on_activate
+        self._on_move = on_move
+        self._controller_factory: Callable[[list[WindowInfo]], OverlayControllerProtocol] = (
+            controller_factory if controller_factory is not None else OverlayController
+        )
+        self._top: tk.Toplevel | None = None
+        self._controller: OverlayControllerProtocol | None = None
+        self._canvas: tk.Canvas | None = None
+        self._strip_canvas: tk.Canvas | None = None
+        self._entry: tk.Entry | None = None
+        self._entry_inner: tk.Frame | None = None
+        self._prefix_badge_widgets: list[tk.Label] = []
+        self._desktop_prefix_nums: list[int] = []
+        self._initial_query: str = ""
+        self._photo_images: list = []  # strong refs to prevent GC of PhotoImage objects
+        self._strip_photo_images: list = []  # same, for strip icons
+        self._pending_hide: str | None = None  # after() ID for a scheduled hide()
+        self._show_fg_hwnd: int = 0  # foreground HWND captured at hotkey time
+        self._bell_badge_widget: tk.Label | None = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def show(self, windows: list[WindowInfo], initial_query: str = "", fg_hwnd: int = 0) -> None:
+        """Open (or refresh) the overlay with *windows*.
+
+        *initial_query* is pre-filled in the search box; typically ``#N`` for
+        the current virtual desktop so the user sees only that desktop's windows.
+        *fg_hwnd* is the foreground window captured at hotkey time; passed to
+        _force_foreground so AttachThreadInput uses a valid HWND even after
+        alt+tab transitions have changed what GetForegroundWindow() would return.
+        """
+        self._show_fg_hwnd = fg_hwnd
+        if self._top is not None:
+            # Already visible — cancel pending hide, then toggle tree expansion
+            if self._pending_hide is not None:
+                self._top.after_cancel(self._pending_hide)
+                self._pending_hide = None
+            assert self._controller is not None
+            self._controller.toggle_all_expansions()
+            self._refresh_canvas()
+            self._resize_to_fit()
+            self._top.lift()
+            self._top.after(50, self._grab_focus)
+            return
+
+        self._controller = self._controller_factory(windows)
+        self._initial_query = initial_query
+        threading.Thread(target=self._fetch_tabs_bg, args=(list(windows),), daemon=True).start()
+        self._build_ui()
+
+    def hide(self) -> None:
+        """Close the overlay without activating any window."""
+        self._pending_hide = None
+        if self._top is not None:
+            self._top.destroy()
+            self._top = None
+            self._photo_images.clear()
+            self._strip_photo_images.clear()
+            self._canvas = None
+            self._strip_canvas = None
+            self._entry = None
+            self._entry_inner = None
+            self._prefix_badge_widgets = []
+            self._desktop_prefix_nums = []
+            self._bell_badge_widget = None
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self) -> None:
+        assert self._controller is not None
+        c = _colors()
+
+        top = tk.Toplevel(self._root)
+        top.overrideredirect(True)
+        top.attributes("-topmost", True)
+        top.configure(bg=c["border"])
+
+        # --- Search entry ---
+        entry_frame = tk.Frame(top, bg=c["bg"], padx=8, pady=8)
+        entry_frame.pack(fill="x")
+
+        # Inner frame provides the visual "entry field" background + padding.
+        # Holds the desktop-prefix badge (when active) and the text entry side-by-side.
+        self._entry_inner = tk.Frame(entry_frame, bg=c["entry_bg"], padx=4, pady=4)
+        self._entry_inner.pack(fill="x")
+
+        self._entry = tk.Entry(
+            self._entry_inner,
+            bg=c["entry_bg"],
+            fg=c["entry_fg"],
+            insertbackground=c["entry_fg"],
+            relief="flat",
+            font=("Segoe UI", 13),
+            bd=0,
+            highlightthickness=0,
+        )
+        self._entry.pack(side="left", fill="x", expand=True)
+        # Freeze the entry bar height at the Text widget's natural size so that
+        # adding or removing badge widgets never causes a vertical resize.
+        self._entry_inner.update_idletasks()
+        self._entry_inner.pack_propagate(False)
+        self._entry.bind("<BackSpace>", self._on_backspace)
+        self._entry.bind("<Control-BackSpace>", self._on_ctrl_backspace)
+        for _d in range(1, 10):
+            self._entry.bind(f"<Control-Key-{_d}>", self._on_ctrl_digit)
+        self._entry.bind("<KeyPress>", self._on_keypress_jump, add=True)
+        self._entry.bind("<Control-equal>", self._on_ctrl_plus)
+        self._entry.bind("<Control-plus>", self._on_ctrl_plus)
+        self._entry.bind("<Control-KP_Add>", self._on_ctrl_plus)
+        self._entry.bind("<Control-minus>", self._on_ctrl_minus)
+        self._entry.bind("<Control-KP_Subtract>", self._on_ctrl_minus)
+        self._entry.bind("<Control-grave>", self._on_ctrl_grave)
+        self._entry.bind("<Control-onehalf>", self._on_ctrl_grave)
+
+        # --- Icon strip (between entry and window list) ---
+        strip_frame = tk.Frame(top, bg=c["bg"])
+        strip_frame.pack(fill="x")
+
+        self._strip_canvas = tk.Canvas(
+            strip_frame,
+            bg=c["bg"],
+            width=_OVERLAY_WIDTH - 2,
+            height=_STRIP_HEIGHT,
+            highlightthickness=0,
+        )
+        self._strip_canvas.pack(fill="x")
+
+        # --- Canvas + scrollbar ---
+        visible_rows = min(len(self._controller.filtered_windows), _MAX_ROWS_VISIBLE)
+        list_height = max(visible_rows, 1) * _ROW_HEIGHT
+
+        list_frame = tk.Frame(top, bg=c["bg"])
+        list_frame.pack(fill="both", expand=True)
+
+        self._canvas = tk.Canvas(
+            list_frame,
+            bg=c["row_bg"],
+            width=_OVERLAY_WIDTH - 16,
+            height=list_height,
+            highlightthickness=0,
+        )
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=scrollbar.set)
+        self._canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # --- Bindings ---
+        assert self._entry is not None
+        self._entry.bind("<Escape>", self._on_escape)
+        self._entry.bind("<Return>", lambda _e: self._activate_selected() or "break")
+        self._entry.bind(
+            "<Control-Return>", lambda _e: self._move_and_activate_selected() or "break"
+        )
+        self._entry.bind("<Up>", self._on_arrow_up)
+        self._entry.bind("<Down>", self._on_arrow_down)
+        self._entry.bind("<Prior>", self._on_page_up)
+        self._entry.bind("<Next>", self._on_page_down)
+        self._entry.bind("<Control-Home>", self._on_ctrl_home)
+        self._entry.bind("<Control-End>", self._on_ctrl_end)
+        self._entry.bind("<Tab>", self._on_tab)
+        self._entry.bind("<Shift-Tab>", self._on_shift_tab)
+        self._entry.bind("<ISO_Left_Tab>", self._on_shift_tab)
+        self._entry.bind("<Control-Tab>", self._on_ctrl_tab)
+        # KeyRelease fires after text is updated (and after KeyPress "break" handlers).
+        self._entry.bind("<KeyRelease>", lambda _: self._on_text_changed())
+        self._entry.bind("<<Paste>>", lambda _: self._entry.after(1, self._on_text_changed))  # type: ignore[union-attr]
+        self._canvas.bind("<Button-1>", self._on_canvas_click)
+        # Dismiss when focus leaves the overlay entirely; cancel that if focus returns.
+        top.bind("<FocusOut>", self._on_focus_out)
+        top.bind("<FocusIn>", self._on_focus_in)
+        top.bind("<Control-Tab>", self._on_ctrl_tab)
+
+        self._top = top
+        # Apply initial query (badge + entry text + controller filter).
+        initial_nums_set, initial_text = parse_query(self._initial_query)
+        self._set_query_state(sorted(initial_nums_set), initial_text)
+        self._entry.icursor(tk.END)
+        self._position_window()
+        top.deiconify()
+        # Small delay lets the window finish rendering before grabbing focus.
+        top.after(50, self._grab_focus)
+
+    # ------------------------------------------------------------------
+    # Canvas rendering
+    # ------------------------------------------------------------------
+
+    def _refresh_canvas(self) -> None:
+        if self._controller is None or self._canvas is None:
+            return
+        c = _colors()
+        self._photo_images.clear()
+        self._canvas.delete("all")
+
+        flat = self._controller.flat_list
+        sel = self._controller.selection_index
+        canvas_w = _OVERLAY_WIDTH - 16
+
+        # Build cumulative y positions (rows have different heights)
+        ys: list[int] = []
+        y = 0
+        for item in flat:
+            ys.append(y)
+            y += _row_height(item)
+        total_h = max(y, 1)
+
+        self._canvas.configure(scrollregion=(0, 0, canvas_w, total_h))
+
+        for i, item in enumerate(flat):
+            y0 = ys[i]
+            rh = _row_height(item)
+            y1 = y0 + rh
+
+            if isinstance(item, TabInfo):
+                row_bg = c["row_sel"] if i == sel else c["tab_bg"]
+                self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="")
+                self._canvas.create_text(
+                    _TEXT_X,
+                    y0 + rh // 2,
+                    anchor="w",
+                    text=item.name,
+                    fill=c["title_fg"],
+                    font=("Segoe UI", 9),
+                    width=canvas_w - _TEXT_X - 8,
+                )
+                continue
+
+            # --- Window row ---
+            w = item
+            row_bg = c["row_sel"] if i == sel else c["row_bg"]
+            self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="")
+
+            # Expand/collapse indicator (shown only for windows with >1 tab)
+            if self._controller.tab_count(w.hwnd) > 1:
+                arrow = "▾" if self._controller.is_expanded(w.hwnd) else "▸"
+                self._canvas.create_text(
+                    6, y0 + rh // 2,
+                    text=arrow, fill=c["proc_fg"],
+                    font=("Segoe UI", 8), anchor="w",
+                )
+
+            # Icon
+            if _HAS_PIL and w.icon is not None:
+                try:
+                    photo = ImageTk.PhotoImage(w.icon)
+                    self._photo_images.append(photo)
+                    self._canvas.create_image(
+                        _ICON_PAD_X, y0 + _ICON_PAD_Y, anchor="nw", image=photo
+                    )
+                except Exception:
+                    pass
+
+            # Desktop number badge — square, vertically centered, styled like the tray icon
+            if w.desktop_number > 0:
+                bx0 = _ICON_PAD_X + _ICON_SIZE + 2
+                bx1 = bx0 + _BADGE_W
+                by0 = y0 + (rh - _BADGE_W) // 2
+                by1 = by0 + _BADGE_W
+                self._canvas.create_rectangle(
+                    bx0, by0, bx1, by1, fill=_desktop_badge_color(w.desktop_number), outline=""
+                )
+                self._canvas.create_text(
+                    (bx0 + bx1) // 2,
+                    (by0 + by1) // 2,
+                    text=str(w.desktop_number),
+                    fill="#ffffff",
+                    font=("Segoe UI", 10, "bold"),
+                    anchor="center",
+                )
+
+            # Window title (bold)
+            self._canvas.create_text(
+                _TEXT_X,
+                y0 + _TITLE_Y,
+                anchor="nw",
+                text=w.title,
+                fill=c["title_fg"],
+                font=("Segoe UI", 10, "bold"),
+                width=canvas_w - _TEXT_X - 8,
+            )
+            # Process name (smaller, muted)
+            self._canvas.create_text(
+                _TEXT_X,
+                y0 + _PROC_Y,
+                anchor="nw",
+                text=w.process_name,
+                fill=c["proc_fg"],
+                font=("Segoe UI", 8),
+                width=canvas_w - _TEXT_X - 8,
+            )
+
+            # Notification bell — amber bell glyph at right edge
+            if w.has_notification:
+                cy = (y0 + y1) // 2
+                self._canvas.create_text(
+                    canvas_w - 14, cy,
+                    text=_NOTIF_BELL_CHAR,
+                    fill=_NOTIF_COLOR,
+                    font=_NOTIF_BELL_FONT,
+                    anchor="center",
+                )
+
+        # Scroll the selected row into view only when it falls outside the viewport
+        if sel >= 0 and flat:
+            sel_y0 = ys[sel]
+            sel_y1 = sel_y0 + _row_height(flat[sel])
+            top_frac, bottom_frac = self._canvas.yview()
+            view_top = top_frac * total_h
+            view_bottom = bottom_frac * total_h
+            if sel_y0 < view_top:
+                self._canvas.yview_moveto(sel_y0 / total_h)
+            elif sel_y1 > view_bottom:
+                visible_h = (bottom_frac - top_frac) * total_h
+                self._canvas.yview_moveto((sel_y1 - visible_h) / total_h)
+
+    def _refresh_icon_strip(self) -> None:
+        if self._strip_canvas is None or self._controller is None:
+            return
+        c = _colors()
+        self._strip_photo_images.clear()
+        self._strip_canvas.delete("all")
+
+        icons = self._controller.app_icons
+        sel_idx = self._controller.app_filter_index
+        total_w = max(len(icons) * _STRIP_SLOT_W, _OVERLAY_WIDTH - 2)
+
+        self._strip_canvas.configure(scrollregion=(0, 0, total_w, _STRIP_HEIGHT))
+
+        for i, w in enumerate(icons):
+            x0 = i * _STRIP_SLOT_W
+            x1 = x0 + _STRIP_SLOT_W
+            slot_bg = c["row_sel"] if i == sel_idx else c["bg"]
+            self._strip_canvas.create_rectangle(x0, 0, x1, _STRIP_HEIGHT, fill=slot_bg, outline="")
+
+            icon_drawn = False
+            if _HAS_PIL and w.icon is not None:
+                try:
+                    photo = ImageTk.PhotoImage(w.icon)
+                    self._strip_photo_images.append(photo)
+                    self._strip_canvas.create_image(
+                        x0 + _STRIP_PAD_X, _STRIP_PAD_Y, anchor="nw", image=photo
+                    )
+                    icon_drawn = True
+                except Exception:
+                    pass
+
+            if not icon_drawn:
+                # Text fallback: process name without extension, up to 4 chars
+                name = w.process_name.rsplit(".", 1)[0][:4].upper()
+                self._strip_canvas.create_text(
+                    x0 + _STRIP_SLOT_W // 2,
+                    _STRIP_HEIGHT // 2,
+                    text=name,
+                    fill=c["title_fg"],
+                    font=("Segoe UI", 8, "bold"),
+                    anchor="center",
+                )
+
+            # Vertical separator between slots
+            if i < len(icons) - 1:
+                self._strip_canvas.create_line(
+                    x1, 3, x1, _STRIP_HEIGHT - 3, fill=c["border"], width=1
+                )
+
+        # Scroll selected slot into view
+        if sel_idx is not None and icons:
+            frac = (sel_idx * _STRIP_SLOT_W) / total_w
+            self._strip_canvas.xview_moveto(frac)
+
+    # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
+
+    def _on_text_changed(self, *_: object) -> None:
+        if self._controller is None or self._entry is None:
+            return
+        new_query = self._effective_query()
+        if new_query != self._controller.query:
+            self._controller.set_query(new_query)
+        self._refresh_icon_strip()
+        self._refresh_canvas()
+        self._resize_to_fit()
+
+    def _on_tab(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.cycle_app_filter(1)
+            self._refresh_icon_strip()
+            self._refresh_canvas()
+        return "break"
+
+    def _on_shift_tab(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.cycle_app_filter(-1)
+            self._refresh_icon_strip()
+            self._refresh_canvas()
+        return "break"
+
+    def _on_ctrl_tab(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.toggle_all_expansions()
+            self._refresh_canvas()
+            self._resize_to_fit()
+        return "break"
+
+    def _fetch_tabs_bg(self, windows: list[WindowInfo]) -> None:
+        """Background thread: fetch UIA tabs for each window and post results to main thread."""
+        try:
+            import ctypes
+            ctypes.windll.ole32.CoInitializeEx(None, 0)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            from windows_navigator.tabs import fetch_tabs
+            for w in windows:
+                tabs = fetch_tabs(w.hwnd)
+                if tabs and self._controller is not None:
+                    self._root.after(0, self._on_tabs_fetched, w.hwnd, tabs)
+        except Exception:
+            pass
+        finally:
+            try:
+                import ctypes
+                ctypes.windll.ole32.CoUninitialize()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+    def _on_tabs_fetched(self, hwnd: int, tabs: list[TabInfo]) -> None:
+        """Main-thread callback: store fetched tabs and refresh if the window is expanded."""
+        if self._controller is None or self._canvas is None:
+            return
+        self._controller.set_tabs(hwnd, tabs)
+        if self._controller.is_expanded(hwnd):
+            self._refresh_canvas()
+            self._resize_to_fit()
+        else:
+            # Redraw just to show the ▸ indicator on the window row
+            self._refresh_canvas()
+
+    def _on_escape(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
+        if self._controller and self._controller.bell_filter:
+            self._controller.toggle_bell_filter()
+            self._update_bell_badge()
+            self._refresh_icon_strip()
+            self._refresh_canvas()
+            self._resize_to_fit()
+        elif self._controller and self._controller.app_filter is not None:
+            self._controller.clear_app_filter()
+            self._refresh_icon_strip()
+            self._refresh_canvas()
+        else:
+            self.hide()
+
+    def _on_backspace(self, _event: tk.Event) -> str | None:  # type: ignore[type-arg]
+        """Backspace at caret 0: remove the rightmost badge (bell first, then desktop badges)."""
+        if self._entry is None or self._entry.index(tk.INSERT) != 0:
+            return None
+        if self._controller and self._controller.bell_filter:
+            self._controller.toggle_bell_filter()
+            self._update_bell_badge()
+            self._refresh_icon_strip()
+            self._refresh_canvas()
+            self._resize_to_fit()
+            return "break"
+        if self._desktop_prefix_nums:
+            self._update_prefix_badges(self._desktop_prefix_nums[:-1])
+            # KeyRelease won't fire (KeyPress returned "break"), so refresh manually.
+            self._on_text_changed()
+            return "break"
+        return None
+
+    def _on_ctrl_backspace(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        """Delete the word (and any leading spaces) to the left of the cursor."""
+        if self._entry is not None:
+            text = self._entry.get()
+            cursor = self._entry.index(tk.INSERT)
+            pos = cursor
+            while pos > 0 and text[pos - 1] == " ":
+                pos -= 1
+            while pos > 0 and text[pos - 1] != " ":
+                pos -= 1
+            if pos < cursor:
+                self._entry.delete(pos, cursor)
+                self._on_text_changed()
+        return "break"
+
+    def _on_ctrl_digit(self, event: tk.Event) -> str:  # type: ignore[type-arg]
+        """Toggle a desktop-number prefix badge (Ctrl+1–9)."""
+        num = int(event.keysym)
+        nums = list(self._desktop_prefix_nums)
+        if num in nums:
+            nums.remove(num)
+        else:
+            nums.append(num)
+        self._update_prefix_badges(nums)
+        self._on_text_changed()
+        return "break"
+
+    def _on_keypress_jump(self, _event: tk.Event) -> str | None:  # type: ignore[type-arg]
+        """Ctrl+Shift+1–9: filter to #N and activate the first window on that desktop.
+
+        Uses Win32 GetKeyState instead of event.keycode/state — Tkinter's keycode mapping
+        is unreliable on Windows and keysym changes under Shift ("1" → "exclam", etc.).
+        """
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            if not (user32.GetKeyState(0x11) & 0x8000):  # VK_CONTROL
+                return None
+            if not (user32.GetKeyState(0x10) & 0x8000):  # VK_SHIFT
+                return None
+            for i in range(9):
+                if user32.GetKeyState(0x31 + i) & 0x8000:  # VK_1–VK_9
+                    num = i + 1
+                    self._set_query_state([num], "")
+                    if self._controller and self._controller.flat_list:
+                        self._activate_selected()
+                    else:
+                        from windows_navigator.virtual_desktop import switch_to_desktop_number
+                        switch_to_desktop_number(num)
+                        self.hide()
+                    return "break"
+        except AttributeError:
+            pass  # non-Windows: windll unavailable
+        return None
+
+    def _on_ctrl_plus(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        """Increment the sole desktop badge (Ctrl+/=) when exactly one badge is shown."""
+        if len(self._desktop_prefix_nums) == 1 and self._entry is not None:
+            n = self._desktop_prefix_nums[0]
+            if n < 9:
+                self._set_query_state([n + 1], self._entry.get())
+        return "break"
+
+    def _on_ctrl_minus(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        """Decrement the sole desktop badge (Ctrl+-) when exactly one badge is shown."""
+        if len(self._desktop_prefix_nums) == 1 and self._entry is not None:
+            n = self._desktop_prefix_nums[0]
+            if n > 1:
+                self._set_query_state([n - 1], self._entry.get())
+        return "break"
+
+    def _on_ctrl_grave(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        """Toggle the bell filter (Ctrl+` / Ctrl+½) — show only windows with notifications."""
+        if self._controller:
+            self._controller.toggle_bell_filter()
+            self._update_bell_badge()
+            self._refresh_icon_strip()
+            self._refresh_canvas()
+            self._resize_to_fit()
+        return "break"
+
+    def _update_bell_badge(self) -> None:
+        """Create or destroy the bell badge in the entry bar to reflect controller._bell_filter."""
+        if self._entry_inner is None or self._entry is None or self._controller is None:
+            return
+        if self._bell_badge_widget is not None:
+            self._bell_badge_widget.destroy()
+            self._bell_badge_widget = None
+        if self._controller.bell_filter:
+            frame = tk.Frame(
+                self._entry_inner, bg=_NOTIF_COLOR,
+                width=_BADGE_ENTRY_SIZE, height=_BADGE_ENTRY_SIZE,
+            )
+            frame.pack_propagate(False)
+            tk.Label(frame, text=_NOTIF_BELL_CHAR, bg=_NOTIF_COLOR, fg="#ffffff",
+                     font=_NOTIF_BELL_FONT).pack(fill="both", expand=True)
+            frame.pack(side="left", before=self._entry, padx=(0, 2))
+            self._bell_badge_widget = frame
+
+    def _grab_focus(self) -> None:
+        if self._top is None or self._entry is None:
+            return
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            our_hwnd = int(self._top.winfo_id())
+            cur_fg = user32.GetForegroundWindow()
+            # If a click moved focus to another window since the hotkey fired,
+            # attach to that window's thread (the actual current foreground).
+            # Fall back to the hotkey-time hwnd for alt-tab and other transitions
+            # where GetForegroundWindow may return something transient.
+            attach_to = cur_fg if (cur_fg and cur_fg != our_hwnd) else self._show_fg_hwnd
+        except Exception:
+            attach_to = self._show_fg_hwnd
+        _force_foreground(int(self._top.winfo_id()), attach_to=attach_to)
+        try:
+            import ctypes
+
+            ctypes.windll.user32.SetFocus(int(self._entry.winfo_id()))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        self._entry.focus_force()
+
+    def _resize_to_fit(self) -> None:
+        """Resize the canvas and window to match the current flat list height."""
+        if self._canvas is None or self._controller is None or self._top is None:
+            return
+        flat = self._controller.flat_list
+        max_h = _MAX_ROWS_VISIBLE * _ROW_HEIGHT
+        new_h = max(min(sum(_row_height(item) for item in flat), max_h), _ROW_HEIGHT)
+        self._canvas.configure(height=new_h)
+        self._position_window()
+
+    def _on_arrow_up(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.move_up()
+            self._refresh_canvas()
+        return "break"  # prevent Entry cursor movement
+
+    def _on_arrow_down(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.move_down()
+            self._refresh_canvas()
+        return "break"
+
+    def _on_page_up(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.move_page_up(_MAX_ROWS_VISIBLE)
+            self._refresh_canvas()
+        return "break"
+
+    def _on_page_down(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.move_page_down(_MAX_ROWS_VISIBLE)
+            self._refresh_canvas()
+        return "break"
+
+    def _on_ctrl_home(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.move_to_first()
+            self._refresh_canvas()
+        return "break"
+
+    def _on_ctrl_end(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        if self._controller:
+            self._controller.move_to_last()
+            self._refresh_canvas()
+        return "break"
+
+    def _on_canvas_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        if self._canvas is None or self._controller is None:
+            return
+        canvas_y = self._canvas.canvasy(event.y)
+        y = 0
+        for i, item in enumerate(self._controller.flat_list):
+            rh = _row_height(item)
+            if y <= canvas_y < y + rh:
+                self._controller.selection_index = i
+                self._activate_selected()
+                return
+            y += rh
+
+    def _on_focus_in(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
+        # Focus returned (e.g. _grab_focus re-grabbed after the SW_SHOWNORMAL
+        # brief-activate/deactivate cycle) — cancel any pending hide.
+        if self._pending_hide is not None and self._top is not None:
+            self._top.after_cancel(self._pending_hide)
+            self._pending_hide = None
+
+    def _on_focus_out(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
+        # Small delay lets any in-flight canvas click fire and activate before we close.
+        # Cancel any existing pending hide first — FocusOut can fire twice (once from the
+        # SW_SHOWNORMAL flash on deiconify, once from the user click) and without this the
+        # first after-ID becomes orphaned: _on_focus_in only cancels _pending_hide (the
+        # latest ID), so the orphaned callback fires later and closes a healthy overlay.
+        if self._top is not None:
+            if self._pending_hide is not None:
+                self._top.after_cancel(self._pending_hide)
+            self._pending_hide = self._top.after(50, self.hide)
+
+    def _activate_selected(self) -> None:
+        if self._controller is None:
+            return
+        item = self._controller.selected_item()
+        self.hide()  # close BEFORE activating to avoid focus conflicts
+        if item is None:
+            return
+        if isinstance(item, TabInfo):
+            try:
+                from windows_navigator.tabs import select_tab
+                select_tab(item)
+            except Exception:
+                pass
+            self._on_activate(item.hwnd)
+        else:
+            self._on_activate(item.hwnd)
+
+    def _move_and_activate_selected(self) -> None:
+        if self._controller is None:
+            return
+        hwnd = self._controller.selected_hwnd()
+        self.hide()
+        if hwnd is not None:
+            self._on_move(hwnd)
+
+    # ------------------------------------------------------------------
+    # Query state helpers
+    # ------------------------------------------------------------------
+
+    def _effective_query(self) -> str:
+        """Return the full query string: badge prefixes + entry text."""
+        return "".join(f"#{n}" for n in self._desktop_prefix_nums) + (
+            self._entry.get() if self._entry is not None else ""
+        )
+
+    def _set_query_state(self, nums: list[int], text: str) -> None:
+        """Update badges and entry text, refresh controller + UI."""
+        self._update_prefix_badges(nums)
+        if self._entry is None:
+            return
+        old_cursor = self._entry.index(tk.INSERT)
+        self._entry.delete(0, tk.END)
+        if text:
+            self._entry.insert(0, text)
+            self._entry.icursor(min(old_cursor, len(text)))
+        if self._controller:
+            self._controller.set_query(self._effective_query())
+        self._refresh_icon_strip()
+        self._refresh_canvas()
+        self._resize_to_fit()
+
+    def _update_prefix_badges(self, nums: list[int]) -> None:
+        self._desktop_prefix_nums = nums
+        if self._entry_inner is None or self._entry is None:
+            return
+        for badge in self._prefix_badge_widgets:
+            badge.destroy()
+        self._prefix_badge_widgets = []
+        for num in nums:
+            color = _desktop_badge_color(num)
+            frame = tk.Frame(
+                self._entry_inner, bg=color,
+                width=_BADGE_ENTRY_SIZE, height=_BADGE_ENTRY_SIZE,
+            )
+            frame.pack_propagate(False)
+            tk.Label(frame, text=str(num), bg=color, fg="#ffffff",
+                     font=("Segoe UI", 10, "bold")).pack(fill="both", expand=True)
+            frame.pack(side="left", before=self._entry, padx=(0, 2))
+            self._prefix_badge_widgets.append(frame)
+        # Keep bell badge after all desktop badges
+        if self._bell_badge_widget is not None:
+            self._bell_badge_widget.pack_forget()
+            self._bell_badge_widget.pack(side="left", before=self._entry, padx=(0, 2))
+
+    # ------------------------------------------------------------------
+    # Geometry
+    # ------------------------------------------------------------------
+
+    def _position_window(self) -> None:
+        if self._top is None or self._controller is None:
+            return
+        left, top, right, bottom = _get_cursor_monitor_workarea()
+        mon_w = right - left
+        mon_h = bottom - top
+
+        flat = self._controller.flat_list
+        max_h = _MAX_ROWS_VISIBLE * _ROW_HEIGHT
+        list_h = max(min(sum(_row_height(item) for item in flat), max_h), _ROW_HEIGHT)
+        overlay_h = 56 + _STRIP_HEIGHT + list_h
+        overlay_w = _OVERLAY_WIDTH
+
+        # Anchor y to where the window sits at max height so the search box
+        # doesn't move as the result list grows or shrinks while typing.
+        max_overlay_h = 56 + _STRIP_HEIGHT + _MAX_ROWS_VISIBLE * _ROW_HEIGHT
+        x = left + (mon_w - overlay_w) // 2
+        y = top + (mon_h - max_overlay_h) // 2
+        self._top.geometry(f"{overlay_w}x{overlay_h}+{x}+{y}")
