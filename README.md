@@ -4,7 +4,7 @@ A keyboard-driven window switcher for Windows with virtual desktop awareness.
 
 ## Usage
 
-Press **Win+Alt+Space** to open the overlay.
+Press **Ctrl+Alt+Space** to open the overlay.
 
 ### Filtering
 
