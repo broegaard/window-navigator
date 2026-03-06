@@ -203,9 +203,18 @@ def _start_move_hotkey_listener(move_queue: queue.Queue[tuple[int, int]]) -> Non
 
 
 def main() -> None:
+    # Per-monitor v2 DPI awareness must be set before the Tk window is created;
+    # without it Windows bitmap-scales the window and text appears blurry on HiDPI displays.
+    try:
+        import ctypes
+
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
     # Deferred imports keep startup fast and allow module-level imports on non-Windows
     from windows_navigator.activation import activate_window
-    from windows_navigator.overlay import NavigatorOverlay
+    from windows_navigator.overlay import NavigatorOverlay, init_scale
     from windows_navigator.provider import RealWindowProvider
     from windows_navigator.tray import TrayIcon
     from windows_navigator.virtual_desktop import (
@@ -216,6 +225,15 @@ def main() -> None:
 
     root = tk.Tk()
     root.withdraw()  # hidden host window — never shown to the user
+
+    # Scale pixel layout constants to match the actual monitor DPI.
+    # winfo_fpixels('1i') returns pixels-per-inch; 96 is the baseline DPI.
+    try:
+        dpi_scale = root.winfo_fpixels("1i") / 96.0
+        if dpi_scale != 1.0:
+            init_scale(dpi_scale)
+    except Exception:
+        pass
 
     def move_and_activate(hwnd: int) -> None:
         move_window_to_current_desktop(hwnd)

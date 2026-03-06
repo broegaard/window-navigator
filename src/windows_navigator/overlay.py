@@ -33,11 +33,16 @@ if TYPE_CHECKING:
 # Layout
 # ---------------------------------------------------------------------------
 
+# All pixel constants are defined at 96 DPI (100 % scaling).  Call
+# init_scale(dpi / 96) before creating NavigatorOverlay so they are
+# recomputed for the actual monitor DPI.  Font sizes are in points and
+# scale automatically once per-monitor DPI awareness is active.
+
 _OVERLAY_WIDTH = 1240
 _MAX_ROWS_VISIBLE = 10
 _ROW_HEIGHT = 44
 _TAB_ROW_HEIGHT = 28  # leaf (tab) rows are slimmer than window rows
-_ICON_SIZE = 32
+_ICON_SIZE = 32       # icon images are always 32 × 32 px; not scaled
 _ICON_PAD_X = 8
 _ICON_PAD_Y = (_ROW_HEIGHT - _ICON_SIZE) // 2
 _BADGE_W = 22  # desktop number badge — square, same height as width
@@ -48,12 +53,56 @@ _NOTIF_COLOR = "#f9a825"  # amber
 _NOTIF_BELL_CHAR = "🔔"
 _NOTIF_BELL_FONT = ("Segoe UI Emoji", 11)
 _BADGE_ENTRY_SIZE = 22  # px — square size for all entry-bar badges (desktop + bell)
+_ENTRY_FRAME_PAD = 8   # outer entry frame padding (px)
+_ENTRY_INNER_PAD = 4   # inner entry frame padding (px)
+_ENTRY_AREA_H = 56     # total height of the entry section (pads + entry widget)
+_ARROW_X = 6           # expand/collapse arrow x position
+_NOTIF_X_OFFSET = 14   # notification bell offset from right canvas edge
+_STRIP_DIV_PAD = 3     # vertical inset for strip slot divider lines
 
 # Icon strip (between entry and window list)
 _STRIP_HEIGHT = _ICON_SIZE + 12  # 44 px — icon + top/bottom padding
 _STRIP_SLOT_W = _ICON_SIZE + 12  # 44 px — horizontal room per icon slot
 _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
 _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
+
+
+def init_scale(scale: float) -> None:
+    """Recompute pixel layout constants for *scale* (= monitor_dpi / 96).
+
+    Must be called before the first NavigatorOverlay is created.
+    Font sizes (in points) are intentionally omitted — they auto-scale
+    once per-monitor DPI awareness is active.
+    """
+    global _OVERLAY_WIDTH, _ROW_HEIGHT, _TAB_ROW_HEIGHT
+    global _ICON_PAD_X, _ICON_PAD_Y, _BADGE_W, _TEXT_X, _TITLE_Y, _PROC_Y
+    global _BADGE_ENTRY_SIZE, _ENTRY_FRAME_PAD, _ENTRY_INNER_PAD, _ENTRY_AREA_H
+    global _ARROW_X, _NOTIF_X_OFFSET, _STRIP_DIV_PAD
+    global _STRIP_HEIGHT, _STRIP_SLOT_W, _STRIP_PAD_Y, _STRIP_PAD_X
+
+    def s(n: int) -> int:
+        return round(n * scale)
+
+    _OVERLAY_WIDTH = s(1240)
+    _ROW_HEIGHT = s(44)
+    _TAB_ROW_HEIGHT = s(28)
+    _ICON_PAD_X = s(8)
+    _ICON_PAD_Y = (_ROW_HEIGHT - _ICON_SIZE) // 2
+    _BADGE_W = s(22)
+    _TEXT_X = _ICON_PAD_X + _ICON_SIZE + s(2) + _BADGE_W + s(4)
+    _TITLE_Y = s(7)
+    _PROC_Y = s(24)
+    _BADGE_ENTRY_SIZE = s(22)
+    _ENTRY_FRAME_PAD = s(8)
+    _ENTRY_INNER_PAD = s(4)
+    _ENTRY_AREA_H = s(56)
+    _ARROW_X = s(6)
+    _NOTIF_X_OFFSET = s(14)
+    _STRIP_DIV_PAD = s(3)
+    _STRIP_HEIGHT = _ICON_SIZE + s(12)
+    _STRIP_SLOT_W = _ICON_SIZE + s(12)
+    _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
+    _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
 
 # ---------------------------------------------------------------------------
 # Colour palettes
@@ -191,12 +240,12 @@ class NavigatorOverlay:
         top.configure(bg=c["border"])
 
         # --- Search entry ---
-        entry_frame = tk.Frame(top, bg=c["bg"], padx=8, pady=8)
+        entry_frame = tk.Frame(top, bg=c["bg"], padx=_ENTRY_FRAME_PAD, pady=_ENTRY_FRAME_PAD)
         entry_frame.pack(fill="x")
 
         # Inner frame provides the visual "entry field" background + padding.
         # Holds the desktop-prefix badge (when active) and the text entry side-by-side.
-        self._entry_inner = tk.Frame(entry_frame, bg=c["entry_bg"], padx=4, pady=4)
+        self._entry_inner = tk.Frame(entry_frame, bg=c["entry_bg"], padx=_ENTRY_INNER_PAD, pady=_ENTRY_INNER_PAD)
         self._entry_inner.pack(fill="x")
 
         self._entry = tk.Entry(
@@ -348,7 +397,7 @@ class NavigatorOverlay:
             if self._controller.tab_count(w.hwnd) > 1:
                 arrow = "▾" if self._controller.is_expanded(w.hwnd) else "▸"
                 self._canvas.create_text(
-                    6, y0 + rh // 2,
+                    _ARROW_X, y0 + rh // 2,
                     text=arrow, fill=c["proc_fg"],
                     font=("Segoe UI", 8), anchor="w",
                 )
@@ -407,7 +456,7 @@ class NavigatorOverlay:
             if w.has_notification:
                 cy = (y0 + y1) // 2
                 self._canvas.create_text(
-                    canvas_w - 14, cy,
+                    canvas_w - _NOTIF_X_OFFSET, cy,
                     text=_NOTIF_BELL_CHAR,
                     fill=_NOTIF_COLOR,
                     font=_NOTIF_BELL_FONT,
@@ -473,7 +522,7 @@ class NavigatorOverlay:
             # Vertical separator between slots
             if i < len(icons) - 1:
                 self._strip_canvas.create_line(
-                    x1, 3, x1, _STRIP_HEIGHT - 3, fill=c["border"], width=1
+                    x1, _STRIP_DIV_PAD, x1, _STRIP_HEIGHT - _STRIP_DIV_PAD, fill=c["border"], width=1
                 )
 
         # Scroll selected slot into view
@@ -871,12 +920,12 @@ class NavigatorOverlay:
         flat = self._controller.flat_list
         max_h = _MAX_ROWS_VISIBLE * _ROW_HEIGHT
         list_h = max(min(sum(_row_height(item) for item in flat), max_h), _ROW_HEIGHT)
-        overlay_h = 56 + _STRIP_HEIGHT + list_h
+        overlay_h = _ENTRY_AREA_H + _STRIP_HEIGHT + list_h
         overlay_w = _OVERLAY_WIDTH
 
         # Anchor y to where the window sits at max height so the search box
         # doesn't move as the result list grows or shrinks while typing.
-        max_overlay_h = 56 + _STRIP_HEIGHT + _MAX_ROWS_VISIBLE * _ROW_HEIGHT
+        max_overlay_h = _ENTRY_AREA_H + _STRIP_HEIGHT + _MAX_ROWS_VISIBLE * _ROW_HEIGHT
         x = left + (mon_w - overlay_w) // 2
         y = top + (mon_h - max_overlay_h) // 2
         self._top.geometry(f"{overlay_w}x{overlay_h}+{x}+{y}")
