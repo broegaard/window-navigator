@@ -302,6 +302,7 @@ class NavigatorOverlay:
             width=_OVERLAY_WIDTH - 16,
             height=list_height,
             highlightthickness=0,
+            cursor="arrow",
         )
         scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=self._canvas.yview)
         self._canvas.configure(yscrollcommand=scrollbar.set)
