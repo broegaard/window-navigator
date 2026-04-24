@@ -300,6 +300,9 @@ def main() -> None:
     root.after(50, poll_queue)
     root.after(50, poll_move_queue)
     root.after(500, poll_desktop)
-    root.mainloop()
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        pass
 
     tray.stop()
