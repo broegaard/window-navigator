@@ -88,6 +88,13 @@ def test_desktop_prefix_with_text_filter():
     assert filter_windows([w1, w2, w3], "#1 note") == [w1]
 
 
+def test_desktop_prefix_with_digit_starting_text():
+    """'#2 1foo' must filter desktop 2 then text-match '1foo', not treat it as desktop 21."""
+    w1 = _make_desktop_window("1foo", "app.exe", desktop_number=2)
+    w2 = _make_desktop_window("1foo", "app.exe", desktop_number=1)
+    assert filter_windows([w1, w2], "#2 1foo") == [w1]
+
+
 def test_desktop_prefix_no_match_returns_empty():
     w1 = _make_desktop_window("Notepad", "notepad.exe", desktop_number=1)
     assert filter_windows([w1], "#99") == []

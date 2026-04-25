@@ -864,9 +864,11 @@ class NavigatorOverlay:
 
     def _effective_query(self) -> str:
         """Return the full query string: badge prefixes + entry text."""
-        return "".join(f"#{n}" for n in self._desktop_prefix_nums) + (
-            self._entry.get() if self._entry is not None else ""
-        )
+        prefix = "".join(f"#{n}" for n in self._desktop_prefix_nums)
+        text = self._entry.get() if self._entry is not None else ""
+        if prefix and text:
+            return prefix + " " + text
+        return prefix + text
 
     def _set_query_state(self, nums: list[int], text: str) -> None:
         """Update badges and entry text, refresh controller + UI."""
