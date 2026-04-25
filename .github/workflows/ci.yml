@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, golang]
+  pull_request:
+
+jobs:
+  # Python: unit tests + lint (Linux, no Win32 deps needed)
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: make test
+      - run: make lint
+
+  # Go: pure-logic tests (Linux, no Win32 deps needed)
+  go-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - run: go test ./internal/navigator/
+
+  # Go: Windows build smoke-test (confirms Win32 code compiles and links)
+  go-build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - run: go build -ldflags="-H windowsgui" -o windows-navigator.exe .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-navigator
+          path: go/windows-navigator.exe
+          retention-days: 7
