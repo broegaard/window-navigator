@@ -174,23 +174,19 @@ class NavigatorOverlay:
         self._photo_images: list = []  # strong refs to prevent GC of PhotoImage objects
         self._strip_photo_images: list = []  # same, for strip icons
         self._pending_hide: str | None = None  # after() ID for a scheduled hide()
-        self._show_fg_hwnd: int = 0  # foreground HWND captured at hotkey time
         self._bell_badge_widget: tk.Label | None = None
+        self._closing: bool = False  # True while handing focus to a target window
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def show(self, windows: list[WindowInfo], initial_desktop: int = 0, fg_hwnd: int = 0) -> None:
+    def show(self, windows: list[WindowInfo], initial_desktop: int = 0) -> None:
         """Open (or refresh) the overlay with *windows*.
 
         *initial_desktop* pre-selects a desktop badge so the user sees only that
         desktop's windows on first open.  Pass 0 to show all desktops.
-        *fg_hwnd* is the foreground window captured at hotkey time; passed to
-        _force_foreground so AttachThreadInput uses a valid HWND even after
-        alt+tab transitions have changed what GetForegroundWindow() would return.
         """
-        self._show_fg_hwnd = fg_hwnd
         if self._top is not None:
             # Already visible — cancel pending hide, then toggle tree expansion
             if self._pending_hide is not None:
@@ -211,10 +207,26 @@ class NavigatorOverlay:
 
     def hide(self) -> None:
         """Close the overlay without activating any window."""
+        self._closing = False
         self._pending_hide = None
         if self._top is not None:
             self._top.destroy()
             self._top = None
+            # After destroy(), Windows won't send WM_SETCURSOR to the window beneath
+            # until the mouse moves. A 1-px nudge-and-return injects two WM_MOUSEMOVE
+            # messages that force WM_SETCURSOR on the underlying window (Firefox /
+            # Terminal). The nudge is sub-frame so the cursor position is unchanged
+            # by the time any rendering occurs.
+            try:
+                import ctypes
+                import ctypes.wintypes
+                _u = ctypes.windll.user32  # type: ignore[attr-defined]
+                _pt = ctypes.wintypes.POINT()
+                _u.GetCursorPos(ctypes.byref(_pt))
+                _u.SetCursorPos(_pt.x + 1, _pt.y)
+                _u.SetCursorPos(_pt.x, _pt.y)
+            except Exception:
+                pass
             self._photo_images.clear()
             self._strip_photo_images.clear()
             self._canvas = None
@@ -732,20 +744,7 @@ class NavigatorOverlay:
     def _grab_focus(self) -> None:
         if self._top is None or self._entry is None:
             return
-        try:
-            import ctypes
-
-            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-            our_hwnd = int(self._top.winfo_id())
-            cur_fg = user32.GetForegroundWindow()
-            # If a click moved focus to another window since the hotkey fired,
-            # attach to that window's thread (the actual current foreground).
-            # Fall back to the hotkey-time hwnd for alt-tab and other transitions
-            # where GetForegroundWindow may return something transient.
-            attach_to = cur_fg if (cur_fg and cur_fg != our_hwnd) else self._show_fg_hwnd
-        except Exception:
-            attach_to = self._show_fg_hwnd
-        _force_foreground(int(self._top.winfo_id()), attach_to=attach_to)
+        _force_foreground(int(self._top.winfo_id()))
         try:
             import ctypes
 
@@ -826,6 +825,8 @@ class NavigatorOverlay:
         # SW_SHOWNORMAL flash on deiconify, once from the user click) and without this the
         # first after-ID becomes orphaned: _on_focus_in only cancels _pending_hide (the
         # latest ID), so the orphaned callback fires later and closes a healthy overlay.
+        if self._closing:
+            return
         if self._top is not None:
             if self._pending_hide is not None:
                 self._top.after_cancel(self._pending_hide)
@@ -835,26 +836,33 @@ class NavigatorOverlay:
         if self._controller is None:
             return
         item = self._controller.selected_item()
-        self.hide()  # close BEFORE activating to avoid focus conflicts
         if item is None:
+            self.hide()
             return
+        # Activate BEFORE hiding: gives the target window one clean WM_ACTIVATE rather
+        # than letting Windows auto-activate it when we destroy the overlay and then
+        # activating it again explicitly — the double-activation causes a spinning cursor
+        # in apps like Firefox and Windows Terminal that are slow to process WM_SETCURSOR.
+        self._closing = True
         if isinstance(item, TabInfo):
             try:
                 from windows_navigator.tabs import select_tab
                 select_tab(item)
             except Exception:
                 pass
-            self._on_activate(item.hwnd)
-        else:
-            self._on_activate(item.hwnd)
+        self._on_activate(item.hwnd)
+        self.hide()
 
     def _move_and_activate_selected(self) -> None:
         if self._controller is None:
             return
         hwnd = self._controller.selected_hwnd()
+        if hwnd is None:
+            self.hide()
+            return
+        self._closing = True
+        self._on_move(hwnd)
         self.hide()
-        if hwnd is not None:
-            self._on_move(hwnd)
 
     # ------------------------------------------------------------------
     # Query state helpers

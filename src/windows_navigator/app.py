@@ -252,7 +252,7 @@ def main() -> None:
     def poll_queue() -> None:
         try:
             while True:
-                fg_hwnd = show_queue.get_nowait()
+                show_queue.get_nowait()  # fg_hwnd captured at hotkey time (no longer used)
                 windows = provider.get_windows()
                 current_desktop = next(
                     (
@@ -262,7 +262,7 @@ def main() -> None:
                     ),
                     0,
                 )
-                overlay.show(windows, initial_desktop=current_desktop, fg_hwnd=fg_hwnd)
+                overlay.show(windows, initial_desktop=current_desktop)
                 tray.update(current_desktop)
                 if current_desktop > 0:
                     _current_desktop[0] = current_desktop

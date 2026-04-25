@@ -27,33 +27,20 @@ def activate_window(hwnd: int) -> bool:
         return False
 
 
-def _force_foreground(hwnd: int, attach_to: int = 0) -> None:
-    """Bring *hwnd* to the foreground even when our process lacks foreground rights.
+def _force_foreground(hwnd: int) -> None:
+    """Bring *hwnd* to the foreground.
 
-    Windows restricts SetForegroundWindow to the foreground process. The
-    AttachThreadInput trick temporarily joins our input queue to the current
-    foreground thread's queue, giving us permission to steal focus.
-
-    *attach_to* is the HWND whose thread we attach to. Pass the foreground window
-    captured at hotkey time so the correct thread is used even if GetForegroundWindow()
-    returns something unexpected 100 ms later (e.g. after alt+tab transitions).
+    RegisterHotKey grants the foreground-lock exemption to our process for the
+    duration of the hotkey handling window (~200 ms), so a plain SetForegroundWindow
+    call is sufficient.  AttachThreadInput is intentionally NOT used: merging the
+    previous foreground thread's input queue into ours causes IDC_APPSTARTING to
+    bleed into that thread's cursor state after detach, producing a persistent
+    spinning cursor in Firefox and Windows Terminal until the mouse moves.
     """
     try:
         import ctypes
 
-        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-
-        fg_hwnd = attach_to if attach_to else user32.GetForegroundWindow()
-        fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, None)
-        our_tid = kernel32.GetCurrentThreadId()
-
-        if fg_tid and fg_tid != our_tid:
-            user32.AttachThreadInput(fg_tid, our_tid, True)
-            user32.SetForegroundWindow(hwnd)
-            user32.AttachThreadInput(fg_tid, our_tid, False)
-        else:
-            user32.SetForegroundWindow(hwnd)
+        ctypes.windll.user32.SetForegroundWindow(hwnd)  # type: ignore[attr-defined]
     except Exception:
         pass
 
