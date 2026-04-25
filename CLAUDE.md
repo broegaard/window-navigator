@@ -199,6 +199,42 @@ with patch.dict("sys.modules", {"winreg": mock_winreg}):
     result = get_current_desktop_number()
 ```
 
+## Go port (`go/`)
+
+The Python implementation is being rewritten in Go, living at `go/internal/navigator/`. Phases 1–4 are complete; Phase 5 (main.go integration) is not yet started.
+
+```bash
+cd go
+go test ./internal/navigator/   # 189 tests, runs on Linux
+```
+
+### Build-tag pattern
+
+Every Win32 feature uses three files:
+- `foo.go` — interfaces and pure logic, no build tag
+- `foo_windows.go` — `//go:build windows` Win32 implementation
+- `foo_stub.go` — `//go:build !windows` no-op stubs
+
+### Go-specific gotchas
+
+- **`windows.WM_APP` is not exported** by `golang.org/x/sys v0.43.0`. Use the literal `0x8000` everywhere (both `tray_windows.go` and `overlay_windows.go` do this).
+- **`GWLP_WNDPROC` / `GWLP_USERDATA` are negative constants.** Go has no negative `const` for `uintptr`. Use two's complement: `_GWLP_WNDPROC_ = ^uintptr(3)` (= -4) and `_GWLP_USERDATA_ = ^uintptr(20)` (= -21).
+- **`AlphaBlend` requires premultiplied alpha.** When converting `*image.RGBA` → HBITMAP for icon rendering, multiply each R/G/B channel by `A/255` before writing into the DIB bits. Pass `BLENDFUNCTION = 0x01FF0000` (`AC_SRC_OVER`, opacity=255, `AC_SRC_ALPHA`).
+- **`syscall.NewCallback` vs `windows.NewCallback`** — use `windows.NewCallback` for Win32 window procedures; it handles calling-convention details on Windows.
+- **Variable shadowing with `windows` package.** Inside goroutine closures, avoid `windows := ...` local variables — they shadow the `golang.org/x/sys/windows` import. Use an unambiguous name (e.g. `wins`).
+- **`.Call()` returns `(r1, r2, err)`**, not a single value. Always destructure: `r, _, _ := proc.Call(...)`.
+- **`runtime.LockOSThread()`** is required for any goroutine that owns a Win32 message pump or uses COM. The overlay and tray goroutines both lock their OS thread.
+- **Cross-goroutine UI mutations** — post custom `WM_APP+N` messages via `PostMessage` to marshal state changes (Show/Hide/Tabs/Icons) to the message-loop goroutine. Protect shared state with a mutex.
+- **`Controller` package-private fields** — `overlay_windows.go` and `controller.go` are in the same package (`navigator`), so `SetSelectionIndex` / `SetAppFilterByName` can access `c.selectionIndex` and `c.appFilter` directly.
+
+### Phase 5 plan (not started)
+
+`main.go` goroutines+channels replace `queue.Queue`+`root.after()`:
+- Hotkey: `RegisterHotKey` in a `runtime.LockOSThread()` goroutine; overlay hotkey is `Ctrl+Shift+Space` (MOD_CONTROL|MOD_SHIFT + VK_SPACE)
+- Flash monitor: `HWND_MESSAGE` + `RegisterShellHookWindow` in its own goroutine
+- Desktop poller: `time.Ticker` every 500 ms
+- Build: `go build -ldflags="-H windowsgui"` → single `.exe`
+
 ## Known limitations / future work
 
 | Item | Notes |
