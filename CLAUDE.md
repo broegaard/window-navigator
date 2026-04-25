@@ -92,13 +92,13 @@ tests/
 
 ### Event flow
 
-1. `_start_hotkey_listener` thread receives `WM_HOTKEY` via `RegisterHotKey` → enqueues `fg_hwnd` to `show_queue`
+1. `_start_hotkey_listener` thread receives `WM_HOTKEY` via `RegisterHotKey` → enqueues `fg_hwnd` (foreground window at hotkey time) to `show_queue`; the value is now discarded by `poll_queue`
 2. `app.poll_queue()` runs every 50 ms on the Tk main thread, dequeues, calls `provider.get_windows()`
 3. Current desktop number is derived from windows (first `is_current_desktop=True` entry) and passed as `initial_desktop=N` to `overlay.show()`
 4. Overlay resets with fresh windows, renders the desktop number as a coloured badge widget in the search entry (text field starts empty), shows via Tk `Toplevel`
 5. User interaction updates `OverlayController` state (pure Python)
-6. On Enter: `overlay.hide()` → `activate_window(hwnd)`
-   On Ctrl+Enter: `overlay.hide()` → `move_window_to_current_desktop(hwnd)` → `activate_window(hwnd)`
+6. On Enter: `activate_window(hwnd)` → `overlay.hide()`
+   On Ctrl+Enter: `move_window_to_current_desktop(hwnd)` → `activate_window(hwnd)` → `overlay.hide()`
 7. `app.poll_desktop()` runs every 500 ms, reads the registry, updates the tray icon if the desktop changed
 
 ### Key design decisions
