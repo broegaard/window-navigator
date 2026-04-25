@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -68,27 +69,6 @@ func mustParseGUID(s string) windows.GUID {
 // rawVDManager wraps a raw IVirtualDesktopManager COM pointer.
 type rawVDManager struct {
 	ptr uintptr // IVirtualDesktopManager*
-}
-
-func (m *rawVDManager) vtableCall(index uintptr, args ...uintptr) (uintptr, error) {
-	// COM vtable: object → vtable_ptr → fn_ptrs
-	vtblPtr := *(*uintptr)(unsafe.Pointer(m.ptr))
-	fn := *(*uintptr)(unsafe.Pointer(vtblPtr + index*8))
-	r, _, _ := windows.NewCallback(func() uintptr { return 0 }) // not used; call directly
-	_ = r
-	// Use syscall.SyscallN to call the vtable function.
-	var result uintptr
-	switch len(args) {
-	case 1:
-		result, _, _ = windows.NewLazySystemDLL("ole32.dll").NewProc("CoInitializeEx").Call() // placeholder
-		_ = result
-		// Actual call: fn(this, arg0)
-		result = callN(fn, append([]uintptr{m.ptr}, args...)...)
-	default:
-		result = callN(fn, append([]uintptr{m.ptr}, args...)...)
-	}
-	_ = result
-	return callNHR(fn, append([]uintptr{m.ptr}, args...)...)
 }
 
 func (m *rawVDManager) IsWindowOnCurrentVirtualDesktop(hwnd uintptr) (bool, error) {
@@ -153,7 +133,7 @@ func callNHR(fn uintptr, args ...uintptr) (uintptr, error) {
 
 // callN dispatches to the right SyscallN variant.
 func callN(fn uintptr, args ...uintptr) uintptr {
-	r, _, _ := windows.SyscallN(fn, args...)
+	r, _, _ := syscall.SyscallN(fn, args...)
 	return r
 }
 
@@ -259,12 +239,12 @@ func comRelease(ptr uintptr) {
 	if ptr == 0 {
 		return
 	}
-	windows.SyscallN(vtableIndex(ptr, 2), ptr)
+	syscall.SyscallN(vtableIndex(ptr, 2), ptr)
 }
 
 // comQueryService calls IServiceProvider::QueryService (vtable index 3).
 func comQueryService(sp uintptr, sid, riid *windows.GUID, ppv *uintptr) uintptr {
-	r, _, _ := windows.SyscallN(vtableIndex(sp, 3),
+	r, _, _ := syscall.SyscallN(vtableIndex(sp, 3),
 		sp,
 		uintptr(unsafe.Pointer(sid)),
 		uintptr(unsafe.Pointer(riid)),
@@ -299,7 +279,7 @@ type vdInternal struct {
 func (m *vdInternal) getViewForHwnd(hwnd uintptr) (uintptr, error) {
 	// IApplicationViewCollection::GetViewForHwnd is at vtable index 6.
 	var view uintptr
-	hr, _, _ := windows.SyscallN(vtableIndex(m.avc, 6), m.avc, hwnd, uintptr(unsafe.Pointer(&view)))
+	hr, _, _ := syscall.SyscallN(vtableIndex(m.avc, 6), m.avc, hwnd, uintptr(unsafe.Pointer(&view)))
 	if hr != 0 || view == 0 {
 		return 0, fmt.Errorf("GetViewForHwnd HRESULT %#x", hr)
 	}
@@ -311,9 +291,9 @@ func (m *vdInternal) getCurrentDesktop() (uintptr, error) {
 	fn := vtableIndex(m.vdmi, m.layout.idxGetCurrent)
 	var hr uintptr
 	if m.layout.hwndParam {
-		hr, _, _ = windows.SyscallN(fn, m.vdmi, 0, uintptr(unsafe.Pointer(&desktop)))
+		hr, _, _ = syscall.SyscallN(fn, m.vdmi, 0, uintptr(unsafe.Pointer(&desktop)))
 	} else {
-		hr, _, _ = windows.SyscallN(fn, m.vdmi, uintptr(unsafe.Pointer(&desktop)))
+		hr, _, _ = syscall.SyscallN(fn, m.vdmi, uintptr(unsafe.Pointer(&desktop)))
 	}
 	if hr != 0 || desktop == 0 {
 		return 0, fmt.Errorf("GetCurrentDesktop HRESULT %#x", hr)
@@ -326,9 +306,9 @@ func (m *vdInternal) getNthDesktop(n int) (uintptr, error) {
 	fn := vtableIndex(m.vdmi, m.layout.idxGetDesktops)
 	var hr uintptr
 	if m.layout.hwndParam {
-		hr, _, _ = windows.SyscallN(fn, m.vdmi, 0, uintptr(unsafe.Pointer(&arr)))
+		hr, _, _ = syscall.SyscallN(fn, m.vdmi, 0, uintptr(unsafe.Pointer(&arr)))
 	} else {
-		hr, _, _ = windows.SyscallN(fn, m.vdmi, uintptr(unsafe.Pointer(&arr)))
+		hr, _, _ = syscall.SyscallN(fn, m.vdmi, uintptr(unsafe.Pointer(&arr)))
 	}
 	if hr != 0 || arr == 0 {
 		return 0, fmt.Errorf("GetDesktops HRESULT %#x", hr)
@@ -337,7 +317,7 @@ func (m *vdInternal) getNthDesktop(n int) (uintptr, error) {
 
 	// IObjectArray::GetCount at vtable index 3.
 	var count uint32
-	windows.SyscallN(vtableIndex(arr, 3), arr, uintptr(unsafe.Pointer(&count)))
+	syscall.SyscallN(vtableIndex(arr, 3), arr, uintptr(unsafe.Pointer(&count)))
 	if n < 1 || n > int(count) {
 		return 0, fmt.Errorf("desktop %d out of range 1..%d", n, count)
 	}
@@ -345,7 +325,7 @@ func (m *vdInternal) getNthDesktop(n int) (uintptr, error) {
 	// IObjectArray::GetAt(n-1, &IID_IVirtualDesktop, &desktop) at vtable index 4.
 	iid := m.layout.iidDesktop
 	var desktop uintptr
-	hr, _, _ = windows.SyscallN(vtableIndex(arr, 4), arr,
+	hr, _, _ = syscall.SyscallN(vtableIndex(arr, 4), arr,
 		uintptr(n-1),
 		uintptr(unsafe.Pointer(&iid)),
 		uintptr(unsafe.Pointer(&desktop)),
@@ -357,7 +337,7 @@ func (m *vdInternal) getNthDesktop(n int) (uintptr, error) {
 }
 
 func (m *vdInternal) moveViewToDesktop(view, desktop uintptr) error {
-	hr, _, _ := windows.SyscallN(vtableIndex(m.vdmi, m.layout.idxMoveView), m.vdmi, view, desktop)
+	hr, _, _ := syscall.SyscallN(vtableIndex(m.vdmi, m.layout.idxMoveView), m.vdmi, view, desktop)
 	if hr != 0 {
 		return fmt.Errorf("MoveViewToDesktop HRESULT %#x", hr)
 	}
@@ -368,9 +348,9 @@ func (m *vdInternal) switchDesktop(desktop uintptr) error {
 	fn := vtableIndex(m.vdmi, m.layout.idxSwitch)
 	var hr uintptr
 	if m.layout.hwndParam {
-		hr, _, _ = windows.SyscallN(fn, m.vdmi, 0, desktop)
+		hr, _, _ = syscall.SyscallN(fn, m.vdmi, 0, desktop)
 	} else {
-		hr, _, _ = windows.SyscallN(fn, m.vdmi, desktop)
+		hr, _, _ = syscall.SyscallN(fn, m.vdmi, desktop)
 	}
 	if hr != 0 {
 		return fmt.Errorf("SwitchDesktop HRESULT %#x", hr)

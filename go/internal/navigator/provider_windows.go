@@ -46,11 +46,11 @@ var (
 
 const (
 	_WS_EX_TOOLWINDOW = 0x00000080
-	_GWL_EXSTYLE      = -20
+	_GWL_EXSTYLE      = ^uintptr(19) // -20
 	_WM_GETICON       = 0x007F
 	_ICON_BIG         = 1
 	_ICON_SMALL       = 0
-	_GCL_HICON        = -14
+	_GCL_HICON        = ^uintptr(13) // -14
 	_SHGFI_ICON       = 0x000000100
 	_SHGFI_LARGEICON  = 0x000000000
 	_DI_NORMAL        = 0x0003
@@ -111,7 +111,7 @@ func shGetFileInfoIcon(hwnd uintptr) uintptr {
 		uintptr(unsafe.Pointer(exeW)),
 		0,
 		uintptr(unsafe.Pointer(&info)),
-		uint32(unsafe.Sizeof(info)),
+		uintptr(unsafe.Sizeof(info)),
 		_SHGFI_ICON|_SHGFI_LARGEICON,
 	)
 	if r == 0 {
@@ -130,7 +130,7 @@ func ExtractIcon(hwnd uintptr) *image.RGBA {
 		iconHandle, _, _ = _sendMessage.Call(hwnd, _WM_GETICON, _ICON_SMALL, 0)
 	}
 	if iconHandle == 0 {
-		iconHandle, _, _ = _getClassLong.Call(hwnd, uintptr(uint32(_GCL_HICON)))
+		iconHandle, _, _ = _getClassLong.Call(hwnd, _GCL_HICON)
 	}
 	if iconHandle == 0 {
 		iconHandle = shGetFileInfoIcon(hwnd)
@@ -244,7 +244,7 @@ func (p *RealWindowProvider) GetWindows() []WindowInfo {
 		if vis == 0 {
 			return 1
 		}
-		exStyle, _, _ := _getWindowLong.Call(h, uintptr(uint32(_GWL_EXSTYLE)))
+		exStyle, _, _ := _getWindowLong.Call(h, _GWL_EXSTYLE)
 		if exStyle&_WS_EX_TOOLWINDOW != 0 {
 			return 1
 		}
