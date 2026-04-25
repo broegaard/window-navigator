@@ -1,6 +1,30 @@
 # Windows Navigator
 
-A keyboard-driven window switcher for Windows with virtual desktop awareness.
+A keyboard-driven window switcher for Windows with virtual desktop awareness. Press **Ctrl+Shift+Space** to open an overlay listing all open windows — type to filter, arrow keys to navigate, Enter to focus.
+
+Runs as a lightweight system-tray app. No Electron, no background service — just a Python script that registers a global hotkey and stays out of your way.
+
+## Requirements
+
+- Windows 10 or Windows 11
+- Python 3.11+
+- Virtual desktop features (move window to desktop, desktop badges) work best on Windows 11 22H2 and later
+
+## Installation
+
+```powershell
+py -m pip install -e ".[windows]"
+```
+
+Then run:
+
+```powershell
+py -m windows_navigator
+```
+
+The app starts in the system tray. Press **Ctrl+Shift+Space** to open the overlay.
+
+> **Note:** If `py` is not found, check **"Add Python to PATH"** in the Python installer.
 
 ## Usage
 
@@ -14,7 +38,7 @@ Press **Ctrl+Shift+Space** to open the overlay.
 | `Ctrl+1`–`9` | Toggle desktop-number filter badge on/off |
 | `Ctrl++` / `Ctrl+-` | Increment/decrement the active desktop badge |
 | `Tab` / `Shift+Tab` | Cycle app filter (icon strip) |
-| `Ctrl+`` ` | Toggle bell filter — show only windows with notifications |
+| `` Ctrl+` `` | Toggle bell filter — show only windows with notifications |
 
 ### Navigation
 
@@ -38,28 +62,29 @@ Press **Ctrl+Shift+Space** to open the overlay.
 
 | Key | Effect |
 |-----|--------|
-| `Ctrl+Win+Shift+←` / `→` | Move foreground window to adjacent desktop |
+| `Ctrl+Win+Shift+←` / `→` | Move foreground window to adjacent virtual desktop |
 
-Runs as a system tray application. The tray icon shows the current virtual desktop number.
+The tray icon shows the current virtual desktop number and updates as you switch desktops.
 
-## Setup
+## Auto-start on login
 
-**Windows** (required for the full tool):
-```powershell
-py -m pip install -e ".[windows,dev]"
+To launch Windows Navigator automatically at login, place `start.pyw` (or a shortcut to it) in your Startup folder:
+
+```
+%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 ```
 
-**Linux / macOS** (dev tools only — tests and linting, no Win32 runtime):
+`start.pyw` runs without a console window. `start.bat` is an alternative that restarts the process if it exits unexpectedly.
+
+## Development
+
+**Linux / macOS** (tests and linting only — no Win32 runtime):
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate  # bash/zsh
 # source .venv/bin/activate.fish                     # fish
 pip install -e ".[dev]"
 ```
-
-> **Note:** On Windows, `pip` may not be on PATH. Use `py -m pip` or `python -m pip`.
-> During Python installation, check **"Add Python to PATH"**.
-
-## Development
 
 ```bash
 make test      # pytest
@@ -68,3 +93,7 @@ make format    # ruff format .
 ```
 
 Run a single test file: `pytest tests/test_filter.py`
+
+## License
+
+Copyright (c) 2026 Kasper Broegaard Simonsen. All rights reserved. See [LICENSE](LICENSE).
