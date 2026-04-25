@@ -64,6 +64,7 @@ _STRIP_HEIGHT = _ICON_SIZE + 12  # 44 px — icon + top/bottom padding
 _STRIP_SLOT_W = _ICON_SIZE + 12  # 44 px — horizontal room per icon slot
 _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
 _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
+_COUNT_BAR_H = 18  # height of the result-count footer strip
 
 
 def init_scale(scale: float) -> None:
@@ -77,7 +78,7 @@ def init_scale(scale: float) -> None:
     global _ICON_PAD_X, _ICON_PAD_Y, _BADGE_W, _TEXT_X, _TITLE_Y, _PROC_Y
     global _BADGE_ENTRY_SIZE, _ENTRY_FRAME_PAD, _ENTRY_INNER_PAD, _ENTRY_AREA_H
     global _ARROW_X, _NOTIF_X_OFFSET, _STRIP_DIV_PAD
-    global _STRIP_HEIGHT, _STRIP_SLOT_W, _STRIP_PAD_Y, _STRIP_PAD_X
+    global _STRIP_HEIGHT, _STRIP_SLOT_W, _STRIP_PAD_Y, _STRIP_PAD_X, _COUNT_BAR_H
 
     def s(n: int) -> int:
         return round(n * scale)
@@ -102,6 +103,7 @@ def init_scale(scale: float) -> None:
     _STRIP_SLOT_W = _ICON_SIZE + s(12)
     _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
     _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
+    _COUNT_BAR_H = s(18)
 
 # ---------------------------------------------------------------------------
 # Colour palettes
@@ -175,6 +177,7 @@ class NavigatorOverlay:
         self._strip_photo_images: list = []  # same, for strip icons
         self._pending_hide: str | None = None  # after() ID for a scheduled hide()
         self._bell_badge_widget: tk.Label | None = None
+        self._count_label: tk.Label | None = None
         self._closing: bool = False  # True while handing focus to a target window
 
     # ------------------------------------------------------------------
@@ -236,6 +239,7 @@ class NavigatorOverlay:
             self._prefix_badge_widgets = []
             self._desktop_prefix_nums = []
             self._bell_badge_widget = None
+            self._count_label = None
 
     # ------------------------------------------------------------------
     # UI construction
@@ -300,7 +304,7 @@ class NavigatorOverlay:
         )
         self._strip_canvas.pack(fill="x")
 
-        # --- Canvas + scrollbar ---
+        # --- Canvas ---
         visible_rows = min(len(self._controller.filtered_windows), _MAX_ROWS_VISIBLE)
         list_height = max(visible_rows, 1) * _ROW_HEIGHT
 
@@ -310,15 +314,27 @@ class NavigatorOverlay:
         self._canvas = tk.Canvas(
             list_frame,
             bg=c["row_bg"],
-            width=_OVERLAY_WIDTH - 16,
+            width=_OVERLAY_WIDTH,
             height=list_height,
             highlightthickness=0,
             cursor="arrow",
         )
-        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=self._canvas.yview)
-        self._canvas.configure(yscrollcommand=scrollbar.set)
-        self._canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        self._canvas.pack(fill="both", expand=True)
+
+        # --- Result count footer ---
+        footer = tk.Frame(top, bg=c["bg"], height=_COUNT_BAR_H)
+        footer.pack(fill="x")
+        footer.pack_propagate(False)
+        self._count_label = tk.Label(
+            footer,
+            text="",
+            bg=c["bg"],
+            fg=c["proc_fg"],
+            font=("Segoe UI", 8),
+            anchor="e",
+            padx=6,
+        )
+        self._count_label.pack(fill="both", expand=True)
 
         # --- Bindings ---
         assert self._entry is not None
@@ -340,7 +356,6 @@ class NavigatorOverlay:
         # KeyRelease fires after text is updated (and after KeyPress "break" handlers).
         self._entry.bind("<KeyRelease>", lambda _: self._on_text_changed())
         self._entry.bind("<<Paste>>", lambda _: self._entry.after(1, self._on_text_changed))  # type: ignore[union-attr]
-        self._canvas.bind("<Button-1>", self._on_canvas_click)
         # Dismiss when focus leaves the overlay entirely; cancel that if focus returns.
         top.bind("<FocusOut>", self._on_focus_out)
         top.bind("<FocusIn>", self._on_focus_in)
@@ -368,7 +383,11 @@ class NavigatorOverlay:
 
         flat = self._controller.flat_list
         sel = self._controller.selection_index
-        canvas_w = _OVERLAY_WIDTH - 16
+        canvas_w = _OVERLAY_WIDTH
+
+        n = len(self._controller.filtered_windows)
+        if self._count_label is not None:
+            self._count_label.config(text=f"{n} result{'s' if n != 1 else ''}")
 
         # Build cumulative y positions (rows have different heights)
         ys: list[int] = []
@@ -799,19 +818,6 @@ class NavigatorOverlay:
             self._refresh_canvas()
         return "break"
 
-    def _on_canvas_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        if self._canvas is None or self._controller is None:
-            return
-        canvas_y = self._canvas.canvasy(event.y)
-        y = 0
-        for i, item in enumerate(self._controller.flat_list):
-            rh = _row_height(item)
-            if y <= canvas_y < y + rh:
-                self._controller.selection_index = i
-                self._activate_selected()
-                return
-            y += rh
-
     def _on_focus_in(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
         # Focus returned (e.g. _grab_focus re-grabbed after the SW_SHOWNORMAL
         # brief-activate/deactivate cycle) — cancel any pending hide.
@@ -922,12 +928,12 @@ class NavigatorOverlay:
         flat = self._controller.flat_list
         max_h = _MAX_ROWS_VISIBLE * _ROW_HEIGHT
         list_h = max(min(sum(_row_height(item) for item in flat), max_h), _ROW_HEIGHT)
-        overlay_h = _ENTRY_AREA_H + _STRIP_HEIGHT + list_h
+        overlay_h = _ENTRY_AREA_H + _STRIP_HEIGHT + list_h + _COUNT_BAR_H
         overlay_w = _OVERLAY_WIDTH
 
         # Anchor y to where the window sits at max height so the search box
         # doesn't move as the result list grows or shrinks while typing.
-        max_overlay_h = _ENTRY_AREA_H + _STRIP_HEIGHT + _MAX_ROWS_VISIBLE * _ROW_HEIGHT
+        max_overlay_h = _ENTRY_AREA_H + _STRIP_HEIGHT + _MAX_ROWS_VISIBLE * _ROW_HEIGHT + _COUNT_BAR_H
         x = left + (mon_w - overlay_w) // 2
         y = top + (mon_h - max_overlay_h) // 2
         self._top.geometry(f"{overlay_w}x{overlay_h}+{x}+{y}")
