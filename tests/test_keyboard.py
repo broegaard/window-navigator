@@ -42,18 +42,17 @@ def test_move_up_decrements():
     assert ctrl.selection_index == 1
 
 
-def test_move_up_clamped_at_zero():
+def test_move_up_wraps_to_last():
     ctrl = OverlayController(_windows("A", "B"))
     ctrl.move_up()
-    assert ctrl.selection_index == 0
+    assert ctrl.selection_index == 1
 
 
-def test_move_down_clamped_at_last():
+def test_move_down_wraps_to_first():
     ctrl = OverlayController(_windows("A", "B"))
     ctrl.move_down()
     ctrl.move_down()
-    ctrl.move_down()
-    assert ctrl.selection_index == 1
+    assert ctrl.selection_index == 0
 
 
 def test_navigation_on_empty_list_is_safe():
@@ -502,14 +501,13 @@ def test_cycle_app_filter_single_app_backward_stays_selected():
 # ---------------------------------------------------------------------------
 
 
-def test_move_down_clamped_to_filtered_windows():
-    """With an app filter active, move_down cannot exceed filtered window count."""
+def test_move_down_wraps_within_filtered_windows():
+    """With an app filter active, move_down wraps from last to first."""
     ctrl = OverlayController(_mixed_windows())
     ctrl.cycle_app_filter(1)  # notepad only — 2 windows
-    ctrl.move_down()
-    ctrl.move_down()
-    ctrl.move_down()
-    assert ctrl.selection_index == 1  # max index in filtered list is 1
+    ctrl.move_down()  # index 1
+    ctrl.move_down()  # wraps to 0
+    assert ctrl.selection_index == 0
 
 
 def test_move_up_and_down_within_filtered_windows():
