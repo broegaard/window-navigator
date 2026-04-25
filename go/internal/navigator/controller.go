@@ -10,6 +10,7 @@ type FilterController interface {
 	BellFilter() bool
 	AppFilter() *string
 	SetQuery(text string)
+	SetDesktopNums(nums map[int]struct{})
 	ToggleBellFilter()
 	CycleAppFilter(direction int)
 	ClearAppFilter()
@@ -65,6 +66,7 @@ func (f FlatItem) HWND() uintptr {
 type Controller struct {
 	AllWindows     []WindowInfo
 	query          string
+	desktopNums    map[int]struct{}
 	appFilter      *string
 	bellFilter     bool
 	tabs           map[uintptr][]TabInfo
@@ -81,6 +83,7 @@ func NewController(windows []WindowInfo) *Controller {
 	}
 	return &Controller{
 		AllWindows:     append([]WindowInfo(nil), windows...),
+		desktopNums:    make(map[int]struct{}),
 		tabs:           make(map[uintptr][]TabInfo),
 		expanded:       make(map[uintptr]struct{}),
 		selectionIndex: sel,
@@ -153,6 +156,29 @@ func (c *Controller) SetQuery(text string) {
 	}
 }
 
+func (c *Controller) SetDesktopNums(nums map[int]struct{}) {
+	c.desktopNums = nums
+	if c.appFilter != nil {
+		names := make(map[string]struct{})
+		for _, w := range c.TextFilteredWindows() {
+			names[w.ProcessName] = struct{}{}
+		}
+		hwndToWindow := make(map[uintptr]WindowInfo)
+		for _, w := range c.AllWindows {
+			hwndToWindow[w.HWND] = w
+		}
+		for h := range c.tabQueryMatches() {
+			if w, ok := hwndToWindow[h]; ok {
+				names[w.ProcessName] = struct{}{}
+			}
+		}
+		if _, ok := names[*c.appFilter]; !ok {
+			c.appFilter = nil
+		}
+	}
+	c.resetSelection()
+}
+
 func (c *Controller) ToggleBellFilter() {
 	c.bellFilter = !c.bellFilter
 	c.resetSelection()
@@ -188,9 +214,9 @@ func (c *Controller) ClearAppFilter() {
 // Derived views
 // ---------------------------------------------------------------------------
 
-// TextFilteredWindows returns windows matching desktop prefix + text query only (no app filter).
+// TextFilteredWindows returns windows matching desktopNums + text query only (no app filter).
 func (c *Controller) TextFilteredWindows() []WindowInfo {
-	return FilterWindows(c.AllWindows, c.query)
+	return FilterWindows(c.AllWindows, c.query, c.desktopNums)
 }
 
 // tabQueryMatches returns a map of hwnd → matching tabs for windows that are
@@ -201,11 +227,10 @@ func (c *Controller) tabQueryMatches() map[uintptr][]TabInfo {
 	if len(c.expanded) == 0 {
 		return result
 	}
-	desktopNums, text := ParseQuery(c.query)
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(c.query) == "" {
 		return result
 	}
-	tokens := strings.Fields(strings.ToLower(text))
+	tokens := strings.Fields(strings.ToLower(c.query))
 	titleHWNDs := make(map[uintptr]struct{})
 	for _, w := range c.TextFilteredWindows() {
 		titleHWNDs[w.HWND] = struct{}{}
@@ -222,8 +247,8 @@ func (c *Controller) tabQueryMatches() map[uintptr][]TabInfo {
 		if !ok {
 			continue
 		}
-		if len(desktopNums) > 0 {
-			if _, ok := desktopNums[w.DesktopNumber]; !ok {
+		if len(c.desktopNums) > 0 {
+			if _, ok := c.desktopNums[w.DesktopNumber]; !ok {
 				continue
 			}
 		}
@@ -435,6 +460,7 @@ func (c *Controller) ToggleAllExpansions() {
 func (c *Controller) Reset(windows []WindowInfo) {
 	c.AllWindows = append([]WindowInfo(nil), windows...)
 	c.query = ""
+	c.desktopNums = make(map[int]struct{})
 	c.appFilter = nil
 	c.bellFilter = false
 	c.tabs = make(map[uintptr][]TabInfo)

@@ -199,6 +199,12 @@ func AssignDesktopNumbers(
 			}
 			n, ok := guidToNumber[guid]
 			if !ok {
+				if len(orderedGUIDs) > 0 {
+					// Ghost window: GUID absent from registry, desktop was deleted
+					numbers[hwnd] = -1
+					isCurrent[hwnd] = false
+					return
+				}
 				n = len(guidToNumber) + 1
 				guidToNumber[guid] = n
 			}

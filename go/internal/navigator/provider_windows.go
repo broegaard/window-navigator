@@ -264,6 +264,9 @@ func (p *RealWindowProvider) GetWindows() []WindowInfo {
 
 	var results []WindowInfo
 	for _, hwnd := range hwnds {
+		if numbers[hwnd] == -1 {
+			continue
+		}
 		title := getWindowTitle(hwnd)
 		processName := getProcessName(hwnd)
 		if _, excluded := _excludedProcesses[strings.ToLower(processName)]; excluded {

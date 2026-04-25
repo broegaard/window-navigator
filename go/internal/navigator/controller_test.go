@@ -286,12 +286,12 @@ func TestResetReplacesAllWindows(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Desktop prefix in controller
+// SetDesktopNums
 // ---------------------------------------------------------------------------
 
-func TestControllerDesktopPrefixFilters(t *testing.T) {
+func TestSetDesktopNumsSingleBadge(t *testing.T) {
 	c := NewController(desktopWindows())
-	c.SetQuery("#1")
+	c.SetDesktopNums(map[int]struct{}{1: {}})
 	fw := c.FilteredWindows()
 	if len(fw) != 2 {
 		t.Errorf("expected 2, got %d", len(fw))
@@ -303,12 +303,48 @@ func TestControllerDesktopPrefixFilters(t *testing.T) {
 	}
 }
 
-func TestControllerDesktopPrefixWithText(t *testing.T) {
+func TestSetDesktopNumsOrSemantics(t *testing.T) {
 	c := NewController(desktopWindows())
-	c.SetQuery("#1 note")
+	c.SetDesktopNums(map[int]struct{}{1: {}, 2: {}})
+	if len(c.FilteredWindows()) != 3 {
+		t.Errorf("expected 3, got %d", len(c.FilteredWindows()))
+	}
+}
+
+func TestSetDesktopNumsNilClearsFilter(t *testing.T) {
+	c := NewController(desktopWindows())
+	c.SetDesktopNums(map[int]struct{}{1: {}})
+	c.SetDesktopNums(nil)
+	if len(c.FilteredWindows()) != 3 {
+		t.Errorf("expected 3 after clear, got %d", len(c.FilteredWindows()))
+	}
+}
+
+func TestSetDesktopNumsCombinedWithText(t *testing.T) {
+	c := NewController(desktopWindows())
+	c.SetDesktopNums(map[int]struct{}{1: {}})
+	c.SetQuery("note")
 	fw := c.FilteredWindows()
 	if len(fw) != 1 || fw[0].Title != "Notepad" {
 		t.Errorf("unexpected: %v", fw)
+	}
+}
+
+func TestSetDesktopNumsAutoClearsAppFilter(t *testing.T) {
+	c := NewController(desktopWindows())
+	c.CycleAppFilter(1) // notepad.exe
+	c.SetDesktopNums(map[int]struct{}{2: {}}) // only chrome on desktop 2
+	if c.AppFilter() != nil {
+		t.Errorf("expected app filter cleared, got %v", c.AppFilter())
+	}
+}
+
+func TestResetClearsDesktopNums(t *testing.T) {
+	c := NewController(desktopWindows())
+	c.SetDesktopNums(map[int]struct{}{1: {}})
+	c.Reset(desktopWindows())
+	if len(c.FilteredWindows()) != 3 {
+		t.Errorf("expected all 3 after reset, got %d", len(c.FilteredWindows()))
 	}
 }
 
@@ -936,7 +972,8 @@ func TestTabSearchRespectsDesktopFilter(t *testing.T) {
 	c.SetTabs(2, makeTabs(2, "Inbox - Firefox"))
 	c.expanded[1] = struct{}{}
 	c.expanded[2] = struct{}{}
-	c.SetQuery("#1 inbox")
+	c.SetDesktopNums(map[int]struct{}{1: {}})
+	c.SetQuery("inbox")
 	fw := c.FilteredWindows()
 	if len(fw) != 1 || fw[0].HWND != 1 {
 		t.Errorf("expected only hwnd 1, got %v", fw)

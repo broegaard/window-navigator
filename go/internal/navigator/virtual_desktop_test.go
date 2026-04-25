@@ -269,21 +269,38 @@ func TestAssignDesktopNumbersPerWindowExceptionGivesZero(t *testing.T) {
 	}
 }
 
-func TestAssignDesktopNumbersNewGUIDBeyondRegistry(t *testing.T) {
+func TestAssignDesktopNumbersGhostGUIDGivesMinusOne(t *testing.T) {
 	m := &mockManager{
 		guidMap:      map[uintptr]string{1: "guid-A", 2: "guid-B", 3: "guid-C"},
 		currentHWNDs: map[uintptr]bool{1: true},
 		failGet:      map[uintptr]bool{},
 	}
-	nums, _ := AssignDesktopNumbers([]uintptr{1, 2, 3}, m, []string{"guid-A", "guid-B"})
+	// guid-C is not in the registry list → ghost window → -1
+	nums, cur := AssignDesktopNumbers([]uintptr{1, 2, 3}, m, []string{"guid-A", "guid-B"})
 	if nums[1] != 1 {
 		t.Errorf("guid-A should be 1, got %d", nums[1])
 	}
 	if nums[2] != 2 {
 		t.Errorf("guid-B should be 2, got %d", nums[2])
 	}
+	if nums[3] != -1 {
+		t.Errorf("guid-C (ghost) should be -1, got %d", nums[3])
+	}
+	if cur[3] {
+		t.Error("ghost window should not be is_current")
+	}
+}
+
+func TestAssignDesktopNumbersGhostGUIDFallbackWhenNoRegistry(t *testing.T) {
+	m := &mockManager{
+		guidMap:      map[uintptr]string{1: "guid-A", 2: "guid-B", 3: "guid-C"},
+		currentHWNDs: map[uintptr]bool{1: true},
+		failGet:      map[uintptr]bool{},
+	}
+	// No orderedGUIDs → sequential fallback, guid-C gets number 3
+	nums, _ := AssignDesktopNumbers([]uintptr{1, 2, 3}, m, nil)
 	if nums[3] != 3 {
-		t.Errorf("guid-C should be 3 (appended), got %d", nums[3])
+		t.Errorf("without registry, guid-C should get sequential number 3, got %d", nums[3])
 	}
 }
 

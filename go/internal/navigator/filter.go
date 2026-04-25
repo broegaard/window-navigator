@@ -1,12 +1,6 @@
 package navigator
 
-import (
-	"regexp"
-	"strings"
-)
-
-// desktopToken matches a single leading "#N" desktop prefix token, e.g. "#3" from "#3 chrome".
-var desktopToken = regexp.MustCompile(`^#(\d+)(.*)`)
+import "strings"
 
 // tokensMatch returns true if every whitespace-separated token in query appears
 // (case-insensitively) in w's title or process name.
@@ -21,67 +15,31 @@ func tokensMatch(w WindowInfo, query string) bool {
 	return true
 }
 
-// ParseQuery splits query into (desktopNums, text).
-// Leading "#N" tokens are stripped and collected into desktopNums.
-// A bare "#" or whitespace-only remainder is normalised to "".
-func ParseQuery(query string) (desktopNums map[int]struct{}, text string) {
-	desktopNums = make(map[int]struct{})
-	rest := query
-	for {
-		m := desktopToken.FindStringSubmatch(rest)
-		if m == nil {
-			break
-		}
-		n := 0
-		for _, ch := range m[1] {
-			n = n*10 + int(ch-'0')
-		}
-		desktopNums[n] = struct{}{}
-		rest = m[2]
-	}
-	stripped := strings.TrimSpace(rest)
-	if stripped == "#" || stripped == "" {
-		return desktopNums, ""
-	}
-	return desktopNums, stripped
-}
+// FilterWindows returns windows matching query and desktopNums.
+// desktopNums restricts to those desktops (OR logic); nil means no desktop filter.
+// query is matched case-insensitively against title and process name (multi-token AND).
+// An empty query with nil desktopNums returns a copy of all windows.
+func FilterWindows(windows []WindowInfo, query string, desktopNums map[int]struct{}) []WindowInfo {
+	hasDesktopFilter := len(desktopNums) > 0
+	hasTextFilter := len(strings.Fields(query)) > 0
 
-// FilterWindows returns windows matching query.
-// Leading "#N" tokens restrict to those desktops (OR logic); remaining text is
-// matched case-insensitively against title and process name.
-// An empty query returns a copy of all windows.
-func FilterWindows(windows []WindowInfo, query string) []WindowInfo {
-	if query == "" {
+	if !hasDesktopFilter && !hasTextFilter {
 		out := make([]WindowInfo, len(windows))
 		copy(out, windows)
 		return out
 	}
 
-	desktopNums, text := ParseQuery(query)
-
-	if len(desktopNums) == 0 {
-		if text == "" {
-			out := make([]WindowInfo, len(windows))
-			copy(out, windows)
-			return out
-		}
-		var result []WindowInfo
-		for _, w := range windows {
-			if tokensMatch(w, text) {
-				result = append(result, w)
-			}
-		}
-		return result
-	}
-
 	var result []WindowInfo
 	for _, w := range windows {
-		if _, ok := desktopNums[w.DesktopNumber]; !ok {
+		if hasDesktopFilter {
+			if _, ok := desktopNums[w.DesktopNumber]; !ok {
+				continue
+			}
+		}
+		if hasTextFilter && !tokensMatch(w, query) {
 			continue
 		}
-		if text == "" || tokensMatch(w, text) {
-			result = append(result, w)
-		}
+		result = append(result, w)
 	}
 	return result
 }
