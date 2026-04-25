@@ -43,9 +43,9 @@ const (
 	_NIF_MESSAGE    = uint32(0x1)
 	_NIF_ICON       = uint32(0x2)
 	_NIF_TIP        = uint32(0x4)
-	_WM_TRAYNOTIFY  = uint32(windows.WM_APP + 1)
-	_WM_TRAY_UPDATE = uint32(windows.WM_APP + 2)
-	_WM_TRAY_STOP   = uint32(windows.WM_APP + 3)
+	_WM_TRAYNOTIFY  = uint32(0x8000 + 1) // WM_APP + 1
+	_WM_TRAY_UPDATE = uint32(0x8000 + 2) // WM_APP + 2
+	_WM_TRAY_STOP   = uint32(0x8000 + 3) // WM_APP + 3
 	_WM_RBUTTONUP   = uint32(0x0205)
 	_IDM_EXIT       = uintptr(1000)
 	_MF_STRING      = uintptr(0x0)
