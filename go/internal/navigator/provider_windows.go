@@ -4,7 +4,6 @@ package navigator
 
 import (
 	"image"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -220,21 +219,19 @@ func getWindowTitle(hwnd uintptr) string {
 // RealWindowProvider enumerates windows using the Win32 API.
 type RealWindowProvider struct {
 	AssignDesktops DesktopAssigner
-	Flashing       map[uintptr]struct{} // set of HWNDs with notifications
+	IsFlashing     func(uintptr) bool // returns true if hwnd has an active notification
 	ExtraFilters   []WindowFilter
 }
 
 // NewRealWindowProvider creates a RealWindowProvider with sensible defaults.
-func NewRealWindowProvider(assign DesktopAssigner, flashing map[uintptr]struct{}, extra []WindowFilter) *RealWindowProvider {
+// isFlashing may be nil (all windows treated as non-flashing).
+func NewRealWindowProvider(assign DesktopAssigner, isFlashing func(uintptr) bool, extra []WindowFilter) *RealWindowProvider {
 	if assign == nil {
 		assign = func(hwnds []uintptr) (map[uintptr]int, map[uintptr]bool) {
 			return AssignDesktopNumbers(hwnds, DefaultVirtualDesktopManager(), GetRegistryDesktopOrder(DefaultRegistryDesktopReader()))
 		}
 	}
-	if flashing == nil {
-		flashing = make(map[uintptr]struct{})
-	}
-	return &RealWindowProvider{AssignDesktops: assign, Flashing: flashing, ExtraFilters: extra}
+	return &RealWindowProvider{AssignDesktops: assign, IsFlashing: isFlashing, ExtraFilters: extra}
 }
 
 // GetWindows enumerates visible non-tool windows in z-order.
@@ -282,7 +279,7 @@ func (p *RealWindowProvider) GetWindows() []WindowInfo {
 		if skip {
 			continue
 		}
-		_, inFlashing := p.Flashing[hwnd]
+		inFlashing := p.IsFlashing != nil && p.IsFlashing(hwnd)
 		hasNotif := inFlashing || _notifTitleRE.MatchString(title)
 
 		results = append(results, WindowInfo{
@@ -297,5 +294,3 @@ func (p *RealWindowProvider) GetWindows() []WindowInfo {
 	return results
 }
 
-// ensure unused import is used
-var _ = os.Getwd
