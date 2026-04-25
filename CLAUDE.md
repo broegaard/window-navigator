@@ -44,7 +44,7 @@ Windows-only runtime deps (`pywin32`, `pystray`, `pyvda`) are in the `[windows]`
 
 ## Architecture
 
-Windows Navigator is a keyboard-driven window switcher for Windows. Press **Ctrl+Alt+Space** to open an overlay listing all open windows; type to filter, arrow keys to navigate, Enter to focus, **Ctrl+Enter** to move the window to the current virtual desktop and focus it.
+Windows Navigator is a keyboard-driven window switcher for Windows. Press **Ctrl+Space** to open an overlay listing all open windows; type to filter, arrow keys to navigate, Enter to focus, **Ctrl+Enter** to move the window to the current virtual desktop and focus it.
 
 ### Repository layout
 

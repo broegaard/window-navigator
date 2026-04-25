@@ -123,7 +123,7 @@ def _start_flash_monitor(flashing: set[int]) -> None:
 
 
 def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
-    """Register Ctrl+Alt+Space via Win32 RegisterHotKey and pump its message loop.
+    """Register Ctrl+Space via Win32 RegisterHotKey and pump its message loop.
 
     Unlike a WH_KEYBOARD_LL hook (the keyboard library), WM_HOTKEY exempts the
     receiving process from the foreground-lock timeout, so SetForegroundWindow
@@ -139,12 +139,11 @@ def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
 
             user32 = ctypes.windll.user32  # type: ignore[attr-defined]
 
-            MOD_ALT = 0x0001
             MOD_CONTROL = 0x0002
             VK_SPACE = 0x20
             WM_HOTKEY = 0x0312
 
-            if not user32.RegisterHotKey(None, 1, MOD_ALT | MOD_CONTROL, VK_SPACE):
+            if not user32.RegisterHotKey(None, 1, MOD_CONTROL, VK_SPACE):
                 return
 
             msg = wt.MSG()
