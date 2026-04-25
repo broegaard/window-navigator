@@ -201,11 +201,12 @@ with patch.dict("sys.modules", {"winreg": mock_winreg}):
 
 ## Go port (`go/`)
 
-The Python implementation is being rewritten in Go, living at `go/internal/navigator/`. Phases 1–4 are complete; Phase 5 (main.go integration) is not yet started.
+The Python implementation is being rewritten in Go, living at `go/internal/navigator/`. All five phases are complete; the binary can be built with `go build -ldflags="-H windowsgui" -o windows-navigator.exe .` from `go/`.
 
 ```bash
 cd go
-go test ./internal/navigator/   # 189 tests, runs on Linux
+go test ./internal/navigator/   # 177 tests, runs on Linux
+go build -ldflags="-H windowsgui" -o windows-navigator.exe .   # Windows only
 ```
 
 ### Build-tag pattern
@@ -226,14 +227,20 @@ Every Win32 feature uses three files:
 - **`runtime.LockOSThread()`** is required for any goroutine that owns a Win32 message pump or uses COM. The overlay and tray goroutines both lock their OS thread.
 - **Cross-goroutine UI mutations** — post custom `WM_APP+N` messages via `PostMessage` to marshal state changes (Show/Hide/Tabs/Icons) to the message-loop goroutine. Protect shared state with a mutex.
 - **`Controller` package-private fields** — `overlay_windows.go` and `controller.go` are in the same package (`navigator`), so `SetSelectionIndex` / `SetAppFilterByName` can access `c.selectionIndex` and `c.appFilter` directly.
+- **Cross-goroutine notification set** — Python's `set[int]` mutated only by the flash-monitor daemon was GIL-safe. In Go, use `NotificationSet` (a `sync.RWMutex`-protected `map[uintptr]struct{}`) with `Add` / `Remove` / `Contains`. Pass `notifs.Contains` as the `IsFlashing func(uintptr) bool` predicate to `NewRealWindowProvider` — never share the raw map across goroutines.
+- **`HSHELL_FLASH (0x8006)` vs `HSHELL_REDRAW (6)` are distinct WPARAM values.** `HSHELL_FLASH` signals `FlashWindowEx` (Teams/Discord DM); `HSHELL_REDRAW` signals a taskbar-button repaint which may indicate `ITaskbarList3::SetOverlayIcon` (Outlook, Edge). Handle them in separate `switch` cases. Go `uintptr` is unsigned so `0x8006` compares correctly — no signed-32-bit overflow unlike Python ctypes.
+- **`RegisterHotKey(hwnd=NULL)` posts `WM_HOTKEY` to the calling thread's queue** — no window is needed. Run `GetMessage(NULL, 0, 0)` in the goroutine to receive it. The goroutine must call `runtime.LockOSThread()` so it stays on the same OS thread.
+- **`HWND_MESSAGE = (HWND)(LONG_PTR)(-3)` in Go** is `^uintptr(2)` (two's-complement -3). Used for message-only windows in the flash monitor (`CreateWindowExW` parent parameter).
+- **`mainLoop` / `RunApp` separation** — `mainLoop` in `app.go` takes channels and interfaces and is the testable coordinator (select over `showCh`, `moveCh`, `time.Ticker`, `quitCh`). `RunApp` in `app_windows.go` wires all Windows defaults and calls `mainLoop`. `main.go` calls `RunApp`. The stub `RunApp` in `app_stub.go` is a no-op so the package compiles on Linux.
 
-### Phase 5 plan (not started)
+### Phase 5 — Integration (done)
 
-`main.go` goroutines+channels replace `queue.Queue`+`root.after()`:
-- Hotkey: `RegisterHotKey` in a `runtime.LockOSThread()` goroutine; overlay hotkey is `Ctrl+Shift+Space` (MOD_CONTROL|MOD_SHIFT + VK_SPACE)
-- Flash monitor: `HWND_MESSAGE` + `RegisterShellHookWindow` in its own goroutine
-- Desktop poller: `time.Ticker` every 500 ms
-- Build: `go build -ldflags="-H windowsgui"` → single `.exe`
+`app.go` / `app_windows.go` / `app_stub.go` implement the coordinator that replaces `queue.Queue` + `root.after()`:
+- Overlay hotkey: `Ctrl+Shift+Space` (MOD_CONTROL|MOD_SHIFT + VK_SPACE) — `RegisterHotKey` goroutine posts to `showCh`
+- Move hotkeys: `Ctrl+Win+Shift+←/→` — separate `RegisterHotKey` goroutine posts to `moveCh`
+- Flash monitor: `HWND_MESSAGE` + `RegisterShellHookWindow` goroutine mutates a `NotificationSet`
+- Desktop poller: `time.NewTicker(500ms)` inside the `mainLoop` select
+- Entry point: `go/main.go` → `navigator.RunApp()`
 
 ## Known limitations / future work
 
