@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from windows_navigator.filter import filter_windows, parse_query
+from windows_navigator.filter import filter_windows
 from windows_navigator.models import TabInfo, WindowInfo
 
 
 class FilterControllerProtocol(Protocol):
-    """Query text, app filter, and bell filter state."""
+    """Query text, desktop filter, app filter, and bell filter state."""
 
     query: str
 
+    @property
+    def desktop_nums(self) -> set[int]: ...
     @property
     def app_icons(self) -> list[WindowInfo]: ...
     @property
@@ -23,6 +25,7 @@ class FilterControllerProtocol(Protocol):
     def app_filter(self) -> str | None: ...
 
     def set_query(self, text: str) -> None: ...
+    def set_desktop_nums(self, nums: set[int]) -> None: ...
     def toggle_bell_filter(self) -> None: ...
     def cycle_app_filter(self, direction: int) -> None: ...
     def clear_app_filter(self) -> None: ...
@@ -78,6 +81,7 @@ class OverlayController:
     def __init__(self, windows: list[WindowInfo]) -> None:
         self.all_windows = list(windows)
         self.query = ""
+        self._desktop_nums: set[int] = set()
         self._app_filter: str | None = None
         self._bell_filter: bool = False
         self._tabs: dict[int, list[TabInfo]] = {}
@@ -90,9 +94,13 @@ class OverlayController:
     # ------------------------------------------------------------------
 
     @property
+    def desktop_nums(self) -> set[int]:
+        return self._desktop_nums
+
+    @property
     def text_filtered_windows(self) -> list[WindowInfo]:
-        """Windows matching desktop prefix + text query only (no app filter)."""
-        return filter_windows(self.all_windows, self.query)
+        """Windows matching desktop badge filter + text query only (no app filter)."""
+        return filter_windows(self.all_windows, self.query, self._desktop_nums or None)
 
     @property
     def _tab_query_matches(self) -> dict[int, list[TabInfo]]:
@@ -102,10 +110,9 @@ class OverlayController:
         """
         if not self._expanded:
             return {}
-        desktop_nums, text = parse_query(self.query)
-        if not text.strip():
+        if not self.query.strip():
             return {}
-        tokens = text.casefold().split()
+        tokens = self.query.casefold().split()
         title_hwnds = {w.hwnd for w in self.text_filtered_windows}
         hwnd_to_window = {w.hwnd: w for w in self.all_windows}
         result: dict[int, list[TabInfo]] = {}
@@ -115,7 +122,7 @@ class OverlayController:
             w = hwnd_to_window.get(hwnd)
             if w is None:
                 continue
-            if desktop_nums and w.desktop_number not in desktop_nums:
+            if self._desktop_nums and w.desktop_number not in self._desktop_nums:
                 continue
             matching = [t for t in tabs if all(tok in t.name.casefold() for tok in tokens)]
             if matching:
@@ -249,8 +256,27 @@ class OverlayController:
     # Mutation helpers
     # ------------------------------------------------------------------
 
+    def set_desktop_nums(self, nums: set[int]) -> None:
+        """Update desktop badge filter and reset selection to the first visible row.
+
+        If the active app filter no longer appears in the new filtered list,
+        it is automatically cleared.
+        """
+        self._desktop_nums = nums
+        if self._app_filter is not None:
+            names = {w.process_name for w in self.text_filtered_windows}
+            hwnd_to_window = {w.hwnd: w for w in self.all_windows}
+            names |= {
+                hwnd_to_window[h].process_name
+                for h in self._tab_query_matches
+                if h in hwnd_to_window
+            }
+            if self._app_filter not in names:
+                self._app_filter = None
+        self.selection_index = 0 if self.flat_list else -1
+
     def set_query(self, text: str) -> None:
-        """Update filter query and reset selection to the first visible row.
+        """Update text filter query and reset selection to the first visible row.
 
         If the active app filter no longer appears in the new text-filtered list,
         it is automatically cleared.
@@ -321,6 +347,7 @@ class OverlayController:
         """Reset all state for a fresh show() call."""
         self.all_windows = list(windows)
         self.query = ""
+        self._desktop_nums = set()
         self._app_filter = None
         self._bell_filter = False
         self._tabs = {}

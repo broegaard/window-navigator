@@ -213,7 +213,7 @@ def test_set_query_then_clear_restores_from_all_windows():
 
 
 # ---------------------------------------------------------------------------
-# desktop-prefix query in controller
+# Desktop badge filter in controller
 # ---------------------------------------------------------------------------
 
 
@@ -225,27 +225,59 @@ def _desktop_windows() -> list[WindowInfo]:
     ]
 
 
-def test_controller_desktop_prefix_filters_correctly():
+def test_controller_desktop_badge_filters_correctly():
     ctrl = OverlayController(_desktop_windows())
-    ctrl.set_query("#1")
+    ctrl.set_desktop_nums({1})
     assert len(ctrl.filtered_windows) == 2
     assert all(w.desktop_number == 1 for w in ctrl.filtered_windows)
 
 
-def test_controller_desktop_prefix_with_text():
+def test_controller_desktop_badge_with_text():
     ctrl = OverlayController(_desktop_windows())
-    ctrl.set_query("#1 note")
+    ctrl.set_desktop_nums({1})
+    ctrl.set_query("note")
     assert len(ctrl.filtered_windows) == 1
     assert ctrl.filtered_windows[0].title == "Notepad"
 
 
-def test_controller_switching_desktop_prefix():
+def test_controller_switching_desktop_badge():
     ctrl = OverlayController(_desktop_windows())
-    ctrl.set_query("#1")
+    ctrl.set_desktop_nums({1})
     assert len(ctrl.filtered_windows) == 2
-    ctrl.set_query("#2")
+    ctrl.set_desktop_nums({2})
     assert len(ctrl.filtered_windows) == 1
     assert ctrl.filtered_windows[0].hwnd == 2
+
+
+def test_controller_multi_desktop_badge_or_semantics():
+    ctrl = OverlayController(_desktop_windows())
+    ctrl.set_desktop_nums({1, 2})
+    assert len(ctrl.filtered_windows) == 3
+
+
+def test_controller_clear_desktop_badge_shows_all():
+    ctrl = OverlayController(_desktop_windows())
+    ctrl.set_desktop_nums({1})
+    assert len(ctrl.filtered_windows) == 2
+    ctrl.set_desktop_nums(set())
+    assert len(ctrl.filtered_windows) == 3
+
+
+def test_controller_hash_in_query_is_plain_text():
+    """'#1' in the query string is literal text, not a desktop filter."""
+    ctrl = OverlayController(_desktop_windows())
+    ctrl.set_query("#1")
+    # '#1' matches no window title or process name → empty list
+    assert len(ctrl.filtered_windows) == 0
+
+
+def test_controller_hash_text_matches_title():
+    """A window whose title contains '#1' is found when querying '#1'."""
+    w = WindowInfo(hwnd=99, title="#1 priority", process_name="app.exe")
+    ctrl = OverlayController([w])
+    ctrl.set_query("#1")
+    assert ctrl.filtered_windows == [w]
+
 
 
 # ---------------------------------------------------------------------------
@@ -628,8 +660,8 @@ def test_tab_search_multi_token():
     assert flat[1].name == "GitHub Pull Requests"
 
 
-def test_tab_search_respects_desktop_filter():
-    """Desktop prefix in query restricts tab search to windows on matching desktops."""
+def test_tab_search_respects_desktop_badge():
+    """Desktop badge restricts tab search to windows on matching desktops."""
     windows = [
         WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe", desktop_number=1),
         WindowInfo(hwnd=2, title="Firefox", process_name="firefox.exe", desktop_number=2),
@@ -639,7 +671,8 @@ def test_tab_search_respects_desktop_filter():
     ctrl.set_tabs(2, _make_tabs(2, "Inbox - Firefox"))
     ctrl._expanded.add(1)
     ctrl._expanded.add(2)
-    ctrl.set_query("#1 inbox")
+    ctrl.set_desktop_nums({1})
+    ctrl.set_query("inbox")
     assert len(ctrl.filtered_windows) == 1
     assert ctrl.filtered_windows[0].hwnd == 1
 

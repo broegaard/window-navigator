@@ -22,7 +22,6 @@ except ImportError:
 
 from windows_navigator.activation import _force_foreground, _get_cursor_monitor_workarea
 from windows_navigator.controller import OverlayController, OverlayControllerProtocol
-from windows_navigator.filter import parse_query
 from windows_navigator.models import TabInfo, WindowInfo
 from windows_navigator.theme import desktop_badge_color as _desktop_badge_color
 
@@ -171,7 +170,7 @@ class NavigatorOverlay:
         self._entry_inner: tk.Frame | None = None
         self._prefix_badge_widgets: list[tk.Label] = []
         self._desktop_prefix_nums: list[int] = []
-        self._initial_query: str = ""
+        self._initial_desktop: int = 0
         self._photo_images: list = []  # strong refs to prevent GC of PhotoImage objects
         self._strip_photo_images: list = []  # same, for strip icons
         self._pending_hide: str | None = None  # after() ID for a scheduled hide()
@@ -182,11 +181,11 @@ class NavigatorOverlay:
     # Public API
     # ------------------------------------------------------------------
 
-    def show(self, windows: list[WindowInfo], initial_query: str = "", fg_hwnd: int = 0) -> None:
+    def show(self, windows: list[WindowInfo], initial_desktop: int = 0, fg_hwnd: int = 0) -> None:
         """Open (or refresh) the overlay with *windows*.
 
-        *initial_query* is pre-filled in the search box; typically ``#N`` for
-        the current virtual desktop so the user sees only that desktop's windows.
+        *initial_desktop* pre-selects a desktop badge so the user sees only that
+        desktop's windows on first open.  Pass 0 to show all desktops.
         *fg_hwnd* is the foreground window captured at hotkey time; passed to
         _force_foreground so AttachThreadInput uses a valid HWND even after
         alt+tab transitions have changed what GetForegroundWindow() would return.
@@ -206,7 +205,7 @@ class NavigatorOverlay:
             return
 
         self._controller = self._controller_factory(windows)
-        self._initial_query = initial_query
+        self._initial_desktop = initial_desktop
         threading.Thread(target=self._fetch_tabs_bg, args=(list(windows),), daemon=True).start()
         self._build_ui()
 
@@ -336,9 +335,8 @@ class NavigatorOverlay:
         top.bind("<Control-Tab>", self._on_ctrl_tab)
 
         self._top = top
-        # Apply initial query (badge + entry text + controller filter).
-        initial_nums_set, initial_text = parse_query(self._initial_query)
-        self._set_query_state(sorted(initial_nums_set), initial_text)
+        # Apply initial desktop badge and controller filter.
+        self._set_query_state([self._initial_desktop] if self._initial_desktop else [], "")
         self._entry.icursor(tk.END)
         self._position_window()
         top.deiconify()
@@ -538,9 +536,9 @@ class NavigatorOverlay:
     def _on_text_changed(self, *_: object) -> None:
         if self._controller is None or self._entry is None:
             return
-        new_query = self._effective_query()
-        if new_query != self._controller.query:
-            self._controller.set_query(new_query)
+        new_text = self._entry.get()
+        if new_text != self._controller.query:
+            self._controller.set_query(new_text)
         self._refresh_icon_strip()
         self._refresh_canvas()
         self._resize_to_fit()
@@ -626,9 +624,10 @@ class NavigatorOverlay:
             self._resize_to_fit()
             return "break"
         if self._desktop_prefix_nums:
-            self._update_prefix_badges(self._desktop_prefix_nums[:-1])
-            # KeyRelease won't fire (KeyPress returned "break"), so refresh manually.
-            self._on_text_changed()
+            self._set_query_state(
+                self._desktop_prefix_nums[:-1],
+                self._entry.get() if self._entry is not None else "",
+            )
             return "break"
         return None
 
@@ -655,8 +654,7 @@ class NavigatorOverlay:
             nums.remove(num)
         else:
             nums.append(num)
-        self._update_prefix_badges(nums)
-        self._on_text_changed()
+        self._set_query_state(nums, self._entry.get() if self._entry is not None else "")
         return "break"
 
     def _on_keypress_jump(self, _event: tk.Event) -> str | None:  # type: ignore[type-arg]
@@ -862,16 +860,8 @@ class NavigatorOverlay:
     # Query state helpers
     # ------------------------------------------------------------------
 
-    def _effective_query(self) -> str:
-        """Return the full query string: badge prefixes + entry text."""
-        prefix = "".join(f"#{n}" for n in self._desktop_prefix_nums)
-        text = self._entry.get() if self._entry is not None else ""
-        if prefix and text:
-            return prefix + " " + text
-        return prefix + text
-
     def _set_query_state(self, nums: list[int], text: str) -> None:
-        """Update badges and entry text, refresh controller + UI."""
+        """Update badges, entry text, and controller filter state."""
         self._update_prefix_badges(nums)
         if self._entry is None:
             return
@@ -881,7 +871,8 @@ class NavigatorOverlay:
             self._entry.insert(0, text)
             self._entry.icursor(min(old_cursor, len(text)))
         if self._controller:
-            self._controller.set_query(self._effective_query())
+            self._controller.set_desktop_nums(set(nums))
+            self._controller.set_query(text)
         self._refresh_icon_strip()
         self._refresh_canvas()
         self._resize_to_fit()

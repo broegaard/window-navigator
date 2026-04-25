@@ -262,8 +262,7 @@ def main() -> None:
                     ),
                     0,
                 )
-                initial_query = f"#{current_desktop}" if current_desktop > 0 else ""
-                overlay.show(windows, initial_query=initial_query, fg_hwnd=fg_hwnd)
+                overlay.show(windows, initial_desktop=current_desktop, fg_hwnd=fg_hwnd)
                 tray.update(current_desktop)
                 if current_desktop > 0:
                     _current_desktop[0] = current_desktop
