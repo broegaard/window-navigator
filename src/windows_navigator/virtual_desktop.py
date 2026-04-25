@@ -356,6 +356,11 @@ def assign_desktop_numbers(hwnds: list[int]) -> tuple[dict[int, int], dict[int, 
                     is_current[hwnd] = True
                     continue
                 if guid not in guid_to_number:
+                    if ordered_guids is not None:
+                        # Ghost window on a desktop that no longer exists — exclude it.
+                        numbers[hwnd] = -1
+                        is_current[hwnd] = False
+                        continue
                     guid_to_number[guid] = len(guid_to_number) + 1
                 numbers[hwnd] = guid_to_number[guid]
                 is_current[hwnd] = bool(manager.IsWindowOnCurrentVirtualDesktop(hwnd))

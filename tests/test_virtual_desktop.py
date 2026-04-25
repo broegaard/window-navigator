@@ -412,26 +412,40 @@ def test_get_current_desktop_number_misaligned_all_data():
 
 
 # ---------------------------------------------------------------------------
-# assign_desktop_numbers: guid not in registry gets appended number
+# assign_desktop_numbers: ghost windows (GUID not in registry)
 # ---------------------------------------------------------------------------
 
 
-def test_assign_numbers_new_guid_beyond_registry_gets_appended():
-    """A window whose GUID doesn't appear in the registry list gets a number
-    appended beyond the registry-ordered range."""
+def test_assign_numbers_ghost_guid_gets_minus_one():
+    """A window whose GUID doesn't appear in the known registry list is a ghost
+    and receives desktop_number=-1 so the provider can skip it."""
     guid_a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     guid_b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     guid_c = "cccccccc-cccc-cccc-cccc-cccccccccccc"  # not in registry
 
     mgr = _make_manager({1: guid_a, 2: guid_b, 3: guid_c}, current_hwnds={1})
-    # Registry has only guid_a and guid_b → guid_c gets number 3 (appended)
     with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
          patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
                return_value=[guid_a, guid_b]):
-        nums, _ = assign_desktop_numbers([1, 2, 3])
-    assert nums[1] == 1   # guid_a → desktop 1
-    assert nums[2] == 2   # guid_b → desktop 2
-    assert nums[3] == 3   # guid_c → appended as desktop 3
+        nums, cur = assign_desktop_numbers([1, 2, 3])
+    assert nums[1] == 1    # guid_a → desktop 1
+    assert nums[2] == 2    # guid_b → desktop 2
+    assert nums[3] == -1   # guid_c → ghost, excluded
+    assert cur[3] is False
+
+
+def test_assign_numbers_ghost_guid_without_registry_gets_appended():
+    """Without a registry list, unknown GUIDs fall back to sequential numbering."""
+    guid_a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    guid_c = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+    mgr = _make_manager({1: guid_a, 2: guid_c}, current_hwnds={1})
+    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
+         patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
+               return_value=None):
+        nums, _ = assign_desktop_numbers([1, 2])
+    assert nums[1] == 1
+    assert nums[2] == 2   # no registry → appended normally
 
 
 # ---------------------------------------------------------------------------

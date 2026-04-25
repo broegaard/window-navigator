@@ -223,8 +223,10 @@ class RealWindowProvider:
                 continue
             if not all(f(hwnd, title, process_name) for f in self._extra_filters):
                 continue
-            icon = IconExtractor.extract(hwnd)
             desktop_number = desktop_numbers.get(hwnd, 0)
+            if desktop_number == -1:
+                continue  # ghost window on a desktop that no longer exists
+            icon = IconExtractor.extract(hwnd)
             is_current = is_current_map.get(hwnd, True)
             results.append(
                 WindowInfo(

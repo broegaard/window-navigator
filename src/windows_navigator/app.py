@@ -123,7 +123,7 @@ def _start_flash_monitor(flashing: set[int]) -> None:
 
 
 def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
-    """Register Ctrl+Alt+Space via Win32 RegisterHotKey and pump its message loop.
+    """Register Ctrl+Shift+Space via Win32 RegisterHotKey and pump its message loop.
 
     Unlike a WH_KEYBOARD_LL hook (the keyboard library), WM_HOTKEY exempts the
     receiving process from the foreground-lock timeout, so SetForegroundWindow
@@ -139,12 +139,12 @@ def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
 
             user32 = ctypes.windll.user32  # type: ignore[attr-defined]
 
-            MOD_ALT = 0x0001
             MOD_CONTROL = 0x0002
+            MOD_SHIFT = 0x0004
             VK_SPACE = 0x20
             WM_HOTKEY = 0x0312
 
-            if not user32.RegisterHotKey(None, 1, MOD_ALT | MOD_CONTROL, VK_SPACE):
+            if not user32.RegisterHotKey(None, 1, MOD_CONTROL | MOD_SHIFT, VK_SPACE):
                 return
 
             msg = wt.MSG()
@@ -253,7 +253,7 @@ def main() -> None:
     def poll_queue() -> None:
         try:
             while True:
-                fg_hwnd = show_queue.get_nowait()
+                show_queue.get_nowait()  # fg_hwnd captured at hotkey time (no longer used)
                 windows = provider.get_windows()
                 current_desktop = next(
                     (
@@ -263,8 +263,7 @@ def main() -> None:
                     ),
                     0,
                 )
-                initial_query = f"#{current_desktop}" if current_desktop > 0 else ""
-                overlay.show(windows, initial_query=initial_query, fg_hwnd=fg_hwnd)
+                overlay.show(windows, initial_desktop=current_desktop)
                 tray.update(current_desktop)
                 if current_desktop > 0:
                     _current_desktop[0] = current_desktop
