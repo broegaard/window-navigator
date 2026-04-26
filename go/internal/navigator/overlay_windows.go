@@ -752,16 +752,19 @@ func (o *win32Overlay) handleShow(args *overlayShowArgs) {
 	// Delayed focus grab (50 ms, like Python)
 	_setTimerW.Call(o.hwnd, _TIMER_GRAB_FOCUS, 50, 0)
 
-	// Tab fetch goroutine
+	// Tab fetch goroutine — must run on a locked OS thread with COM initialized.
 	wins := args.windows
 	go func() {
 		runtime.LockOSThread()
+		defer runtime.UnlockOSThread() // registered first, runs last — COM must uninit first
 		ole32 := windows.NewLazySystemDLL("ole32.dll")
-		ole32.NewProc("CoInitializeEx").Call(0, 0)
+		ole32.NewProc("CoInitializeEx").Call(0, 0) // COINIT_MULTITHREADED
 		defer ole32.NewProc("CoUninitialize").Call()
-		defer runtime.UnlockOSThread()
+
+		DbgLog("tabFetch: fetching tabs for %d windows", len(wins))
 		for _, w := range wins {
 			tabs := DefaultTabFetcher(w.HWND)
+			DbgLog("tabFetch: hwnd=%#x got %d tabs", w.HWND, len(tabs))
 			if len(tabs) > 0 {
 				o.mu.Lock()
 				o.pendingTabs[w.HWND] = tabs
@@ -769,6 +772,7 @@ func (o *win32Overlay) handleShow(args *overlayShowArgs) {
 				_postMessageW.Call(o.hwnd, uintptr(_WM_OVL_TABS), w.HWND, 0)
 			}
 		}
+		DbgLog("tabFetch: done")
 	}()
 
 	// Icon fetch goroutine

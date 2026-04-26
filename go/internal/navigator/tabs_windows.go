@@ -10,15 +10,20 @@ import (
 
 // IUIAutomation vtable indices (IUnknown = 0–2; stable across all Windows versions).
 const (
-	_vtblUiaElementFromHandle   = uintptr(6)
-	_vtblUiaCreateTrueCondition = uintptr(20) // IUIAutomation: QI/AddRef/Release(0-2), CompareElements(3)…GetRootElement(5), ElementFromHandle(6)…GetFocusedElementBuildCache(12), CreateTreeWalker(13), get_*Walker(14-16), get_*Condition(17-19), CreateTrueCondition(20)
+	_vtblUiaElementFromHandle = uintptr(6)
 
-	_vtblElemFindAll                = uintptr(6)
 	_vtblElemGetCurrentPropertyValue = uintptr(10)
-	_vtblElemGetCurrentPattern      = uintptr(14)
+	_vtblElemGetCurrentPattern       = uintptr(14)
 
-	_vtblArrLength     = uintptr(3)
-	_vtblArrGetElement = uintptr(4)
+	// IUIAutomation::get_RawViewWalker — returns an IUIAutomationTreeWalker that
+	// visits every element without filtering. Used instead of FindAll because
+	// FindAll requires IUIAutomationElementArray cross-process marshaling which
+	// returns E_FAIL in MTA apartments on Windows 10/11.
+	_vtblUiaRawViewWalker = uintptr(16)
+
+	// IUIAutomationTreeWalker vtable indices
+	_vtblWalkerFirstChild = uintptr(4) // GetFirstChildElement
+	_vtblWalkerNextSib    = uintptr(6) // GetNextSiblingElement
 
 	_vtblSelItemSelect = uintptr(3)
 )
@@ -28,11 +33,10 @@ var (
 	_iidIUIAutomation   = mustParseGUID("{30CBE57D-D9D0-452A-AB13-7AC5AC4825EE}")
 
 	_iidIUIAutomationSelectionItemPattern = mustParseGUID("{A8EFA66A-0FDA-421A-9194-38021F3578EA}")
-	_iidIUIAutomationElementArray         = mustParseGUID("{14314595-B4BC-4055-95F2-58F2E42C9855}")
 
-	_oleaut32      = windows.NewLazySystemDLL("oleaut32.dll")
-	_variantClear  = _oleaut32.NewProc("VariantClear")
-	_coCreateInst  = windows.NewLazySystemDLL("ole32.dll").NewProc("CoCreateInstance")
+	_oleaut32     = windows.NewLazySystemDLL("oleaut32.dll")
+	_variantClear = _oleaut32.NewProc("VariantClear")
+	_coCreateInst = windows.NewLazySystemDLL("ole32.dll").NewProc("CoCreateInstance")
 )
 
 // uiaVariant is a 16-byte buffer matching the Windows VARIANT structure.
@@ -43,9 +47,9 @@ const (
 	_VT_BSTR = uint16(8)
 )
 
-func (v *uiaVariant) vt() uint16 { return *(*uint16)(unsafe.Pointer(&v[0])) }
-func (v *uiaVariant) i4() int32  { return *(*int32)(unsafe.Pointer(&v[8])) }
-func (v *uiaVariant) bstr() uintptr { return *(*uintptr)(unsafe.Pointer(&v[8])) }
+func (v *uiaVariant) vt() uint16      { return *(*uint16)(unsafe.Pointer(&v[0])) }
+func (v *uiaVariant) i4() int32       { return *(*int32)(unsafe.Pointer(&v[8])) }
+func (v *uiaVariant) bstr() uintptr   { return *(*uintptr)(unsafe.Pointer(&v[8])) }
 
 // uiaRelease calls IUnknown::Release on ptr (vtable index 2). Safe to call with 0.
 func uiaRelease(ptr uintptr) {
@@ -84,45 +88,25 @@ func uiaElementFromHandle(uia uintptr, hwnd uintptr) uintptr {
 	return elem
 }
 
-// uiaCreateTrueCondition calls IUIAutomation::CreateTrueCondition.
-func uiaCreateTrueCondition(uia uintptr) uintptr {
-	var cond uintptr
-	callNHR(vtableIndex(uia, _vtblUiaCreateTrueCondition), uia, uintptr(unsafe.Pointer(&cond))) //nolint
-	return cond
+// uiaRawViewWalker calls IUIAutomation::get_RawViewWalker.
+func uiaRawViewWalker(uia uintptr) uintptr {
+	var walker uintptr
+	callNHR(vtableIndex(uia, _vtblUiaRawViewWalker), uia, uintptr(unsafe.Pointer(&walker))) //nolint
+	return walker
 }
 
-// uiaGetChildren calls IUIAutomationElement::FindAll with TreeScope_Children.
-// Caller owns the returned element pointers and must call uiaRelease on each.
-func uiaGetChildren(elem uintptr, trueCond uintptr) []uintptr {
-	DbgLog("uiaGetChildren: elem=%#x trueCond=%#x", elem, trueCond)
-	var arr uintptr
-	hr, _ := callNHR(
-		vtableIndex(elem, _vtblElemFindAll),
-		elem,
-		UIATreeScopeChildren,
-		trueCond,
-		uintptr(unsafe.Pointer(&arr)),
-	)
-	DbgLog("uiaGetChildren: FindAll hr=%#x arr=%#x", hr, arr)
-	if hr != 0 || arr == 0 {
-		return nil
-	}
-	defer uiaRelease(arr)
+// walkerFirstChild calls IUIAutomationTreeWalker::GetFirstChildElement.
+func walkerFirstChild(walker, elem uintptr) uintptr {
+	var child uintptr
+	callNHR(vtableIndex(walker, _vtblWalkerFirstChild), walker, elem, uintptr(unsafe.Pointer(&child))) //nolint
+	return child
+}
 
-	var length int32
-	callNHR(vtableIndex(arr, _vtblArrLength), arr, uintptr(unsafe.Pointer(&length))) //nolint
-	DbgLog("uiaGetChildren: length=%d", length)
-
-	out := make([]uintptr, 0, length)
-	for i := int32(0); i < length; i++ {
-		var child uintptr
-		callNHR(vtableIndex(arr, _vtblArrGetElement), arr, uintptr(i), uintptr(unsafe.Pointer(&child))) //nolint
-		if child != 0 {
-			out = append(out, child)
-		}
-	}
-	DbgLog("uiaGetChildren: returning %d children", len(out))
-	return out
+// walkerNextSib calls IUIAutomationTreeWalker::GetNextSiblingElement.
+func walkerNextSib(walker, elem uintptr) uintptr {
+	var sib uintptr
+	callNHR(vtableIndex(walker, _vtblWalkerNextSib), walker, elem, uintptr(unsafe.Pointer(&sib))) //nolint
+	return sib
 }
 
 // uiaControlType returns UIAControlTypeProperty value for elem, or 0 on error.
@@ -151,9 +135,10 @@ func uiaName(elem uintptr) string {
 	return s
 }
 
-// collectTabItems recursively walks the UIA tree under elem and returns tab-item elements.
-// Stops at Document nodes (in-page ARIA widgets). Caller owns returned pointers.
-func collectTabItems(elem uintptr, trueCond uintptr, depth int) []uintptr {
+// collectTabItems recursively walks the UIA tree under elem using the RawViewWalker
+// and returns tab-item elements. Stops at Document nodes (in-page ARIA widgets).
+// Caller owns returned pointers.
+func collectTabItems(elem uintptr, walker uintptr, depth int) []uintptr {
 	DbgLog("collectTabItems: depth=%d elem=%#x", depth, elem)
 	if depth > 10 {
 		return nil
@@ -166,14 +151,18 @@ func collectTabItems(elem uintptr, trueCond uintptr, depth int) []uintptr {
 	if ct == UIADocumentControlType {
 		return nil
 	}
-	children := uiaGetChildren(elem, trueCond)
+
 	var items []uintptr
-	for _, child := range children {
-		sub := collectTabItems(child, trueCond, depth+1)
-		if len(sub) > 0 && sub[0] != child {
-			uiaRelease(child) // child not returned; release it
+	child := walkerFirstChild(walker, elem)
+	DbgLog("collectTabItems: depth=%d firstChild=%#x", depth, child)
+	for child != 0 {
+		next := walkerNextSib(walker, child)
+		sub := collectTabItems(child, walker, depth+1)
+		if len(sub) == 0 || sub[0] != child {
+			uiaRelease(child)
 		}
 		items = append(items, sub...)
+		child = next
 	}
 	return items
 }
@@ -196,11 +185,15 @@ func fetchTabsWindows(hwnd uintptr) []TabInfo {
 	}
 	defer uiaRelease(root)
 
-	DbgLog("fetchTabs: %#x CreateTrueCondition", hwnd)
-	cond := uiaCreateTrueCondition(uia)
-	defer uiaRelease(cond)
-	DbgLog("fetchTabs: %#x cond=%#x collectTabItems", hwnd, cond)
-	items := collectTabItems(root, cond, 0)
+	DbgLog("fetchTabs: %#x get_RawViewWalker", hwnd)
+	walker := uiaRawViewWalker(uia)
+	DbgLog("fetchTabs: %#x walker=%#x", hwnd, walker)
+	if walker == 0 {
+		return nil
+	}
+	defer uiaRelease(walker)
+
+	items := collectTabItems(root, walker, 0)
 	DbgLog("fetchTabs: %#x collectTabItems done: %d items", hwnd, len(items))
 	tabs := make([]TabInfo, 0, len(items))
 	for idx, el := range items {
@@ -226,10 +219,13 @@ func selectTabWindows(tab TabInfo) {
 	}
 	defer uiaRelease(root)
 
-	cond := uiaCreateTrueCondition(uia)
-	defer uiaRelease(cond)
+	walker := uiaRawViewWalker(uia)
+	if walker == 0 {
+		return
+	}
+	defer uiaRelease(walker)
 
-	items := collectTabItems(root, cond, 0)
+	items := collectTabItems(root, walker, 0)
 	defer func() {
 		for _, el := range items {
 			uiaRelease(el)
