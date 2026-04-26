@@ -151,13 +151,13 @@ func makeHICON(img *image.RGBA, label string) uintptr {
 		*(*byte)(unsafe.Pointer(pixPtr + uintptr(i))) = b
 	}
 
-	// Draw bold white text via GDI
+	// Draw bold white text with black outline via GDI
 	hdcMem, _, _ := _createCompatibleDC.Call(0)
 	old, _, _ := _selectObject.Call(hdcMem, hbm)
 
-	fontSize := uintptr(28)
+	fontSize := uintptr(40)
 	if len(label) == 1 {
-		fontSize = 36
+		fontSize = 54
 	}
 	faceName, _ := windows.UTF16PtrFromString("Segoe UI")
 	hFont, _, _ := _createFontW.Call(
@@ -166,19 +166,28 @@ func makeHICON(img *image.RGBA, label string) uintptr {
 		uintptr(unsafe.Pointer(faceName)),
 	)
 	oldFont, _, _ := _selectObject.Call(hdcMem, hFont)
-	_setTextColor.Call(hdcMem, 0x00FFFFFF)
 	_setBkMode.Call(hdcMem, _TRANSPARENT)
 
 	type rect32 struct{ l, t, r, b int32 }
-	rc := rect32{0, 0, int32(size), int32(size)}
 	labelW, _ := windows.UTF16PtrFromString(label)
-	_drawTextW.Call(
-		hdcMem,
-		uintptr(unsafe.Pointer(labelW)),
-		^uintptr(0), // -1 = null-terminated
-		uintptr(unsafe.Pointer(&rc)),
-		_DT_CENTER|_DT_VCENTER|_DT_SINGLELINE,
-	)
+	sz := int32(size)
+	drawLabel := func(dx, dy int32, color uint32) {
+		rc := rect32{dx, dy, sz + dx, sz + dy}
+		_setTextColor.Call(hdcMem, uintptr(color))
+		_drawTextW.Call(
+			hdcMem,
+			uintptr(unsafe.Pointer(labelW)),
+			^uintptr(0),
+			uintptr(unsafe.Pointer(&rc)),
+			_DT_CENTER|_DT_VCENTER|_DT_SINGLELINE,
+		)
+	}
+	// Black outline at four diagonal offsets, then white fill on top
+	drawLabel(-1, -1, 0x00000000)
+	drawLabel(+1, -1, 0x00000000)
+	drawLabel(-1, +1, 0x00000000)
+	drawLabel(+1, +1, 0x00000000)
+	drawLabel(0, 0, 0x00FFFFFF)
 
 	_selectObject.Call(hdcMem, oldFont)
 	_deleteObject.Call(hFont)
