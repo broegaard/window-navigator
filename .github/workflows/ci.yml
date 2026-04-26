@@ -9,6 +9,9 @@ jobs:
   # Python: unit tests + lint (Linux, no Win32 deps needed)
   python:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
