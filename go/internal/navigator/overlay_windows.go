@@ -552,7 +552,7 @@ func (o *win32Overlay) editWndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uin
 	case _WM_CHAR:
 		ch := rune(wp)
 		switch ch {
-		case '\r', '\t', '\x1b': // Enter, Tab, Escape — already handled in WM_KEYDOWN
+		case '\r', '\t', '\x1b', '\x7f': // Enter, Tab, Escape, DEL (Ctrl+Backspace) — already handled in WM_KEYDOWN
 			return 0
 		}
 
