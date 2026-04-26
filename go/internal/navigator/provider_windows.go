@@ -105,6 +105,7 @@ func shGetFileInfoIcon(hwnd uintptr) uintptr {
 	if exePath == "" {
 		return 0
 	}
+	DbgLog("shGetFileInfoIcon: hwnd=%#x exePath=%s", hwnd, exePath)
 	exeW, _ := windows.UTF16PtrFromString(exePath)
 	var info shFileInfo
 	r, _, _ := _sHGetFileInfoW.Call(
@@ -114,6 +115,7 @@ func shGetFileInfoIcon(hwnd uintptr) uintptr {
 		uintptr(unsafe.Sizeof(info)),
 		_SHGFI_ICON|_SHGFI_LARGEICON,
 	)
+	DbgLog("shGetFileInfoIcon: hwnd=%#x r=%#x", hwnd, r)
 	if r == 0 {
 		return 0
 	}

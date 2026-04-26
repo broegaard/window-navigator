@@ -154,7 +154,8 @@ func (c *managerCache) get() VirtualDesktopManager {
 		coInitEx := ole32.NewProc("CoInitializeEx")
 		coCreate := ole32.NewProc("CoCreateInstance")
 
-		coInitEx.Call(0, 2) // COINIT_APARTMENTTHREADED
+		initHR, _, _ := coInitEx.Call(0, 2) // COINIT_APARTMENTTHREADED
+		DbgLog("managerCache: CoInitializeEx hr=%#x", initHR)
 
 		hr, _, _ := coCreate.Call(
 			uintptr(unsafe.Pointer(&_clsidVirtualDesktopManager)),
@@ -163,6 +164,7 @@ func (c *managerCache) get() VirtualDesktopManager {
 			uintptr(unsafe.Pointer(&_iidIVirtualDesktopManager)),
 			uintptr(unsafe.Pointer(&ptr)),
 		)
+		DbgLog("managerCache: CoCreateInstance hr=%#x ptr=%#x", hr, ptr)
 		if hr != 0 || ptr == 0 {
 			return
 		}

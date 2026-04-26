@@ -10,8 +10,8 @@ import (
 
 // IUIAutomation vtable indices (IUnknown = 0–2; stable across all Windows versions).
 const (
-	_vtblUiaElementFromHandle  = uintptr(6)
-	_vtblUiaCreateTrueCondition = uintptr(29)
+	_vtblUiaElementFromHandle   = uintptr(6)
+	_vtblUiaCreateTrueCondition = uintptr(20) // IUIAutomation: QI/AddRef/Release(0-2), CompareElements(3)…GetRootElement(5), ElementFromHandle(6)…GetFocusedElementBuildCache(12), CreateTreeWalker(13), get_*Walker(14-16), get_*Condition(17-19), CreateTrueCondition(20)
 
 	_vtblElemFindAll                = uintptr(6)
 	_vtblElemGetCurrentPropertyValue = uintptr(10)
@@ -94,6 +94,7 @@ func uiaCreateTrueCondition(uia uintptr) uintptr {
 // uiaGetChildren calls IUIAutomationElement::FindAll with TreeScope_Children.
 // Caller owns the returned element pointers and must call uiaRelease on each.
 func uiaGetChildren(elem uintptr, trueCond uintptr) []uintptr {
+	DbgLog("uiaGetChildren: elem=%#x trueCond=%#x", elem, trueCond)
 	var arr uintptr
 	hr, _ := callNHR(
 		vtableIndex(elem, _vtblElemFindAll),
@@ -102,6 +103,7 @@ func uiaGetChildren(elem uintptr, trueCond uintptr) []uintptr {
 		trueCond,
 		uintptr(unsafe.Pointer(&arr)),
 	)
+	DbgLog("uiaGetChildren: FindAll hr=%#x arr=%#x", hr, arr)
 	if hr != 0 || arr == 0 {
 		return nil
 	}
@@ -109,6 +111,7 @@ func uiaGetChildren(elem uintptr, trueCond uintptr) []uintptr {
 
 	var length int32
 	callNHR(vtableIndex(arr, _vtblArrLength), arr, uintptr(unsafe.Pointer(&length))) //nolint
+	DbgLog("uiaGetChildren: length=%d", length)
 
 	out := make([]uintptr, 0, length)
 	for i := int32(0); i < length; i++ {
@@ -118,6 +121,7 @@ func uiaGetChildren(elem uintptr, trueCond uintptr) []uintptr {
 			out = append(out, child)
 		}
 	}
+	DbgLog("uiaGetChildren: returning %d children", len(out))
 	return out
 }
 
@@ -150,10 +154,12 @@ func uiaName(elem uintptr) string {
 // collectTabItems recursively walks the UIA tree under elem and returns tab-item elements.
 // Stops at Document nodes (in-page ARIA widgets). Caller owns returned pointers.
 func collectTabItems(elem uintptr, trueCond uintptr, depth int) []uintptr {
+	DbgLog("collectTabItems: depth=%d elem=%#x", depth, elem)
 	if depth > 10 {
 		return nil
 	}
 	ct := uiaControlType(elem)
+	DbgLog("collectTabItems: depth=%d controlType=%d", depth, ct)
 	if ct == UIATabItemControlType {
 		return []uintptr{elem}
 	}
@@ -174,22 +180,27 @@ func collectTabItems(elem uintptr, trueCond uintptr, depth int) []uintptr {
 
 // fetchTabsWindows implements TabFetcher using IUIAutomation.
 func fetchTabsWindows(hwnd uintptr) []TabInfo {
+	DbgLog("fetchTabs: %#x createUIA", hwnd)
 	uia := createUIA()
 	if uia == 0 {
+		DbgLog("fetchTabs: %#x createUIA=0, skip", hwnd)
 		return nil
 	}
 	defer uiaRelease(uia)
 
+	DbgLog("fetchTabs: %#x ElementFromHandle uia=%#x", hwnd, uia)
 	root := uiaElementFromHandle(uia, hwnd)
+	DbgLog("fetchTabs: %#x root=%#x", hwnd, root)
 	if root == 0 {
 		return nil
 	}
 	defer uiaRelease(root)
 
+	DbgLog("fetchTabs: %#x CreateTrueCondition", hwnd)
 	cond := uiaCreateTrueCondition(uia)
-	defer uiaRelease(cond)
-
+	DbgLog("fetchTabs: %#x cond=%#x collectTabItems", hwnd, cond)
 	items := collectTabItems(root, cond, 0)
+	DbgLog("fetchTabs: %#x collectTabItems done: %d items", hwnd, len(items))
 	tabs := make([]TabInfo, 0, len(items))
 	for idx, el := range items {
 		name := uiaName(el)

@@ -256,10 +256,22 @@ func moveHotkeyLoop(ch chan<- moveCmd) {
 // RunApp sets up DPI awareness, starts background services, and runs the
 // main event loop.  Blocks until the user exits via the tray icon.
 func RunApp() {
+	InitDebugLog()
+	DbgLog("RunApp: start")
+
+	// Lock this goroutine to its OS thread before CoInitializeEx so that all
+	// IVirtualDesktopManager vtable calls (in AssignDesktopNumbers) happen on
+	// the same thread that initialized the STA.  Go goroutines may otherwise
+	// migrate between OS threads, leaving COM with an uninitialized apartment.
+	runtime.LockOSThread()
+	DbgLog("RunApp: OS thread locked")
+
 	SetDpiAwareness()
+	DbgLog("RunApp: DPI awareness set")
 
 	notifs := NewNotificationSet()
 	StartFlashMonitor(notifs)
+	DbgLog("RunApp: flash monitor started")
 
 	showCh := make(chan struct{}, 10)
 	moveCh := make(chan moveCmd, 10)
@@ -269,8 +281,11 @@ func RunApp() {
 	quitCh := make(chan struct{})
 
 	regReader := DefaultRegistryDesktopReader()
+	DbgLog("RunApp: registry reader created")
 	switcher := DefaultDesktopSwitcher()
+	DbgLog("RunApp: desktop switcher created")
 	manager := DefaultVirtualDesktopManager()
+	DbgLog("RunApp: virtual desktop manager created: nil=%v", manager == nil)
 
 	provider := NewRealWindowProvider(
 		func(hwnds []uintptr) (map[uintptr]int, map[uintptr]bool) {
@@ -280,7 +295,9 @@ func RunApp() {
 		nil,
 	)
 
+	DbgLog("RunApp: provider created")
 	tray := NewTrayIcon(func() { close(quitCh) })
+	DbgLog("RunApp: tray created")
 
 	overlay := NewOverlay(OverlayCallbacks{
 		OnActivate: func(hwnd uintptr) { ActivateWindow(hwnd) },
@@ -290,5 +307,7 @@ func RunApp() {
 		},
 	})
 
+	DbgLog("RunApp: overlay created; entering mainLoop")
 	mainLoop(provider, overlay, tray, switcher, regReader, showCh, moveCh, quitCh)
+	DbgLog("RunApp: mainLoop returned")
 }

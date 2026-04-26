@@ -69,7 +69,9 @@ func mainLoop(
 			for len(showCh) > 0 {
 				<-showCh
 			}
+			DbgLog("mainLoop: showCh fired — calling GetWindows")
 			wins := provider.GetWindows()
+			DbgLog("mainLoop: GetWindows returned %d windows", len(wins))
 			desktop := 0
 			for _, w := range wins {
 				if w.IsCurrentDesktop && w.DesktopNumber > 0 {
@@ -77,7 +79,9 @@ func mainLoop(
 					break
 				}
 			}
+			DbgLog("mainLoop: current desktop=%d — calling Show", desktop)
 			overlay.Show(wins, desktop)
+			DbgLog("mainLoop: Show returned")
 			tray.Update(desktop)
 			if desktop > 0 {
 				currentDesktop = desktop
