@@ -20,7 +20,7 @@ Press **Ctrl+Shift+Space** to open the overlay.
 
 | Key | Effect |
 |-----|--------|
-| `↑` / `↓` | Move selection |
+| `↑` / `↓` | Move selection (wraps around) |
 | `PgUp` / `PgDn` | Move selection by page |
 | `Ctrl+Home` / `Ctrl+End` | Jump to first / last |
 | `Ctrl+Tab` | Expand / collapse browser tabs (via UIA) |
