@@ -9,8 +9,7 @@ import (
 )
 
 var (
-	_user32   = windows.NewLazySystemDLL("user32.dll")
-	_kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	_user32 = windows.NewLazySystemDLL("user32.dll")
 
 	_isWindow              = _user32.NewProc("IsWindow")
 	_isIconic              = _user32.NewProc("IsIconic")
@@ -18,11 +17,9 @@ var (
 	_setForegroundWindow   = _user32.NewProc("SetForegroundWindow")
 	_getForegroundWindow   = _user32.NewProc("GetForegroundWindow")
 	_getWindowThreadProcID = _user32.NewProc("GetWindowThreadProcessId")
-	_attachThreadInput     = _user32.NewProc("AttachThreadInput")
 	_getCursorPos          = _user32.NewProc("GetCursorPos")
 	_monitorFromPoint      = _user32.NewProc("MonitorFromPoint")
 	_getMonitorInfoW       = _user32.NewProc("GetMonitorInfoW")
-	_getCurrentThreadID    = _kernel32.NewProc("GetCurrentThreadId")
 )
 
 const (
@@ -45,23 +42,12 @@ func ActivateWindow(hwnd uintptr) bool {
 	return r != 0
 }
 
-// ForceForeground brings hwnd to the foreground even when our process lacks foreground rights.
-// attachTo is the HWND whose thread we attach to (capture GetForegroundWindow before calling).
-func ForceForeground(hwnd uintptr, attachTo uintptr) {
-	fgHWND := attachTo
-	if fgHWND == 0 {
-		fgHWND, _, _ = _getForegroundWindow.Call()
-	}
-	var dummy uint32
-	fgTID, _, _ := _getWindowThreadProcID.Call(fgHWND, uintptr(unsafe.Pointer(&dummy)))
-	ourTID, _, _ := _getCurrentThreadID.Call()
-	if fgTID != 0 && fgTID != ourTID {
-		_attachThreadInput.Call(fgTID, ourTID, 1)
-		_setForegroundWindow.Call(hwnd)
-		_attachThreadInput.Call(fgTID, ourTID, 0)
-	} else {
-		_setForegroundWindow.Call(hwnd)
-	}
+// ForceForeground brings hwnd to the foreground.
+// WM_HOTKEY is exempt from the foreground-lock timeout so a plain SetForegroundWindow is
+// sufficient after RegisterHotKey fires — no AttachThreadInput needed or wanted (merging
+// input queues corrupts cursor state on the detached thread).
+func ForceForeground(hwnd uintptr) {
+	_setForegroundWindow.Call(hwnd)
 }
 
 // Rect is a Win32 RECT structure.
