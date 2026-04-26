@@ -10,11 +10,3 @@ Keyboard-driven window switcher for Windows. Press **Ctrl+Shift+Space** to open 
 | `go/` | Go port (complete — the shipping binary) |
 
 Each subdirectory has its own `CLAUDE.md` with commands, architecture, and gotchas.
-
-```
-CLAUDE.md          ← this file
-python/CLAUDE.md   ← Python implementation details
-go/CLAUDE.md       ← Go implementation details
-README.md
-pack.sh
-```

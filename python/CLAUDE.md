@@ -102,7 +102,7 @@ tests/
 - **Deferred tab expansion** — `toggle_all_expansions()` called before any tabs have been fetched sets `_want_all_expanded = True`. `set_tabs()` checks this flag and adds arriving windows to `_expanded`, so the shortcut feels immediate even though UIA fetch takes hundreds of milliseconds.
 - **Notification detection** — two signals combined into `flashing: set[int]`: `HSHELL_FLASH` (0x8006, fired by `FlashWindowEx`) and `HSHELL_REDRAW` (6) on a background window with an unchanged title (fingerprint of `ITaskbarList3::SetOverlayIcon`). Title changes matching `^\(\d+\)` on HSHELL_REDRAW are also caught.
 
-### Conventions
+## Conventions
 
 - Line length: **100 characters** (ruff enforces)
 - Sorted imports (ruff rule I)
@@ -111,7 +111,7 @@ tests/
 - Tests run identically on Linux and Windows — mock all Win32/COM calls
 - **Keep README.md in sync** — update hotkey/filter tables when user-facing behaviour changes
 
-### Testing patterns
+## Testing patterns
 
 **`overlay.py` imports `tkinter` at module level.** Stub it before importing:
 ```python
@@ -129,7 +129,7 @@ with patch.dict("sys.modules", {"winreg": mock_winreg}):
     result = get_current_desktop_number()
 ```
 
-### Test file map
+## Test file map
 
 | File | What it covers |
 |------|----------------|

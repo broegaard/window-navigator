@@ -27,7 +27,7 @@ Every Win32 feature uses three files:
 
 Cross-goroutine UI state changes are posted as `WM_APP+N` messages via `PostMessage` to marshal to the message-loop goroutine.
 
-`NotificationSet` (`sync.RWMutex`-protected `map[uintptr]struct{}`) is the Go equivalent of Python's GIL-safe `set[int]`. Pass `notifs.Contains` as the `IsFlashing` predicate — never share the raw map across goroutines.
+`NotificationSet` is a `sync.RWMutex`-protected `map[uintptr]struct{}`. Pass `notifs.Contains` as the `IsFlashing` predicate — never share the raw map across goroutines.
 
 **COM STA worker goroutine** — `IVirtualDesktopManagerInternal` uses `CLSCTX_LOCAL_SERVER` (out-of-process). All calls are serialised through a dedicated goroutine that calls `runtime.LockOSThread()` + `CoInitializeEx(APARTMENTTHREADED)` at startup, then processes requests from a channel. The ImmersiveShell `IServiceProvider` and resolved interface pointers are kept alive for the process lifetime.
 
