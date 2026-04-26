@@ -89,19 +89,23 @@ func queryExePath(handle windows.Handle) string {
 	return windows.UTF16ToString(buf[:size])
 }
 
+// exePathForHwnd returns the full exe path for the process that owns hwnd, or "".
+func exePathForHwnd(hwnd uintptr) string {
+	var pid uint32
+	_getWindowThreadProcID.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return ""
+	}
+	path := queryExePath(handle)
+	windows.CloseHandle(handle)
+	return path
+}
+
 // shGetFileInfoIcon gets a window's icon via SHGetFileInfoW (fallback for UWP/modern apps).
 // Returns the HICON handle (caller-owned, must DestroyIcon).
 func shGetFileInfoIcon(hwnd uintptr) uintptr {
-	var dummy uint32
-	_, _, _ = _getWindowThreadProcID.Call(hwnd, uintptr(unsafe.Pointer(&dummy)))
-	pid := dummy
-
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-	if err != nil {
-		return 0
-	}
-	exePath := queryExePath(handle)
-	windows.CloseHandle(handle)
+	exePath := exePathForHwnd(hwnd)
 	if exePath == "" {
 		return 0
 	}
@@ -197,16 +201,7 @@ func ExtractIcon(hwnd uintptr) *image.RGBA {
 
 // getProcessName returns the exe basename for hwnd.
 func getProcessName(hwnd uintptr) string {
-	var dummy uint32
-	_, _, _ = _getWindowThreadProcID.Call(hwnd, uintptr(unsafe.Pointer(&dummy)))
-	pid := dummy
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-	if err != nil {
-		return ""
-	}
-	exePath := queryExePath(handle)
-	windows.CloseHandle(handle)
-	return filepath.Base(exePath)
+	return filepath.Base(exePathForHwnd(hwnd))
 }
 
 // getWindowTitle returns the window title for hwnd.
@@ -237,6 +232,7 @@ func NewRealWindowProvider(assign DesktopAssigner, isFlashing func(uintptr) bool
 // GetWindows enumerates visible non-tool windows in z-order.
 func (p *RealWindowProvider) GetWindows() []WindowInfo {
 	var hwnds []uintptr
+	titles := make(map[uintptr]string)
 
 	cb := windows.NewCallback(func(hwnd windows.HWND, _ uintptr) uintptr {
 		h := uintptr(hwnd)
@@ -253,6 +249,7 @@ func (p *RealWindowProvider) GetWindows() []WindowInfo {
 			return 1
 		}
 		hwnds = append(hwnds, h)
+		titles[h] = title
 		return 1
 	})
 	_enumWindows.Call(cb, 0)
@@ -264,7 +261,7 @@ func (p *RealWindowProvider) GetWindows() []WindowInfo {
 		if numbers[hwnd] == -1 {
 			continue
 		}
-		title := getWindowTitle(hwnd)
+		title := titles[hwnd]
 		processName := getProcessName(hwnd)
 		if _, excluded := _excludedProcesses[strings.ToLower(processName)]; excluded {
 			continue

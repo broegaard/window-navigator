@@ -198,6 +198,7 @@ func fetchTabsWindows(hwnd uintptr) []TabInfo {
 
 	DbgLog("fetchTabs: %#x CreateTrueCondition", hwnd)
 	cond := uiaCreateTrueCondition(uia)
+	defer uiaRelease(cond)
 	DbgLog("fetchTabs: %#x cond=%#x collectTabItems", hwnd, cond)
 	items := collectTabItems(root, cond, 0)
 	DbgLog("fetchTabs: %#x collectTabItems done: %d items", hwnd, len(items))
