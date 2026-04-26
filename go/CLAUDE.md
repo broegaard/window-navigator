@@ -8,7 +8,7 @@ cd go
 go test ./internal/navigator/   # runs on Linux
 
 # cross-compile from Linux (or build natively on Windows):
-GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui" -o windows-navigator.exe .
+GOOS=windows GOARCH=amd64 go build -o windows-navigator.exe .
 
 # regenerate DPI manifest resource after editing app.manifest:
 go generate ./...

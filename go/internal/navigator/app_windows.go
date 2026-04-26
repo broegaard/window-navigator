@@ -3,8 +3,11 @@
 package navigator
 
 import (
+	"os"
+	"os/signal"
 	"regexp"
 	"runtime"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -21,7 +24,11 @@ var (
 	_registerHotKey          = _user32.NewProc("RegisterHotKey")
 	_unregisterHotKey        = _user32.NewProc("UnregisterHotKey")
 
-	_shcore                = windows.NewLazySystemDLL("shcore.dll")
+	_kernel32               = windows.NewLazySystemDLL("kernel32.dll")
+	_getConsoleProcessList  = _kernel32.NewProc("GetConsoleProcessList")
+	_getConsoleWindow       = _kernel32.NewProc("GetConsoleWindow")
+
+	_shcore                 = windows.NewLazySystemDLL("shcore.dll")
 	_setProcessDpiAwareness = _shcore.NewProc("SetProcessDpiAwareness")
 )
 
@@ -56,6 +63,30 @@ const (
 )
 
 var _flashNotifRE = regexp.MustCompile(`^\(\d+\)`)
+
+// ---------------------------------------------------------------------------
+// Console visibility
+// ---------------------------------------------------------------------------
+
+// hideConsoleIfStandalone hides the console window when this process is the
+// only one attached to it — meaning we were launched by double-click or a
+// startup entry rather than from a terminal.  When launched from a terminal
+// (cmd, PowerShell, WSL) more than one process shares the console, so we
+// leave it alone: the console is the terminal's window, not ours to hide, and
+// keeping it attached is what makes Ctrl+C reach this process.
+//
+// Must be called before any window or COM initialisation so the console window
+// disappears before anything else becomes visible.
+func hideConsoleIfStandalone() {
+	var pids [2]uint32
+	n, _, _ := _getConsoleProcessList.Call(uintptr(unsafe.Pointer(&pids[0])), 2)
+	if n != 1 {
+		return // shared console — launched from a terminal
+	}
+	if cw, _, _ := _getConsoleWindow.Call(); cw != 0 {
+		_showWindow.Call(cw, 0) // SW_HIDE
+	}
+}
 
 // ---------------------------------------------------------------------------
 // DPI awareness
@@ -254,8 +285,12 @@ func moveHotkeyLoop(ch chan<- moveCmd) {
 // ---------------------------------------------------------------------------
 
 // RunApp sets up DPI awareness, starts background services, and runs the
-// main event loop.  Blocks until the user exits via the tray icon.
+// main event loop.  Blocks until the user exits via the tray icon or Ctrl+C.
 func RunApp() {
+	// Must be first: hides the console window before anything else is visible
+	// when launched standalone (double-click / startup entry).
+	hideConsoleIfStandalone()
+
 	InitDebugLog()
 
 	// Lock this goroutine to its OS thread before CoInitializeEx so that all
@@ -275,6 +310,16 @@ func RunApp() {
 	StartMoveHotkeyListener(moveCh)
 
 	quitCh := make(chan struct{})
+	var once sync.Once
+	quit := func() { once.Do(func() { close(quitCh) }) }
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	defer signal.Stop(sigCh)
+	go func() {
+		<-sigCh
+		quit()
+	}()
 
 	regReader := DefaultRegistryDesktopReader()
 	switcher := DefaultDesktopSwitcher()
@@ -288,7 +333,7 @@ func RunApp() {
 		nil,
 	)
 
-	tray := NewTrayIcon(func() { close(quitCh) })
+	tray := NewTrayIcon(quit)
 
 	overlay := NewOverlay(OverlayCallbacks{
 		OnActivate: func(hwnd uintptr) { ActivateWindow(hwnd) },

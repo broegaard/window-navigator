@@ -227,9 +227,10 @@ func trayLabel(n int) string {
 
 // windowsTrayIcon implements TrayIconBackend using Shell_NotifyIconW.
 type windowsTrayIcon struct {
-	onExit  func()
-	hwnd    atomic.Uintptr
-	curIcon atomic.Uintptr
+	onExit   func()
+	hwnd     atomic.Uintptr
+	curIcon  atomic.Uintptr
+	stopDone chan struct{}
 }
 
 // Start launches the tray message loop in a dedicated goroutine and returns immediately.
@@ -244,14 +245,17 @@ func (t *windowsTrayIcon) Update(desktopNumber int) {
 	}
 }
 
-// Stop posts WM_TRAY_STOP so the loop goroutine exits.
+// Stop posts WM_TRAY_STOP and blocks until the loop goroutine has removed the
+// icon and exited, so the caller can safely let the process exit.
 func (t *windowsTrayIcon) Stop() {
 	if hwnd := t.hwnd.Load(); hwnd != 0 {
 		_postMessageW.Call(hwnd, uintptr(_WM_TRAY_STOP), 0, 0)
 	}
+	<-t.stopDone
 }
 
 func (t *windowsTrayIcon) loop(desktopNumber int) {
+	defer close(t.stopDone)
 	runtime.LockOSThread()
 
 	hInst, _, _ := _getModuleHandleW.Call(0)
@@ -376,5 +380,5 @@ func (t *windowsTrayIcon) showMenu(hwnd uintptr) {
 
 // NewTrayIcon returns a TrayIconBackend backed by Shell_NotifyIconW.
 func NewTrayIcon(onExit func()) TrayIconBackend {
-	return &windowsTrayIcon{onExit: onExit}
+	return &windowsTrayIcon{onExit: onExit, stopDone: make(chan struct{})}
 }
