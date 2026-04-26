@@ -318,11 +318,21 @@ class OverlayController:
         self.selection_index = 0 if self.flat_list else -1
 
     def move_up(self) -> None:
-        if self.selection_index > 0:
+        n = len(self.flat_list)
+        if n == 0:
+            return
+        if self.selection_index <= 0:
+            self.selection_index = n - 1
+        else:
             self.selection_index -= 1
 
     def move_down(self) -> None:
-        if self.selection_index < len(self.flat_list) - 1:
+        n = len(self.flat_list)
+        if n == 0:
+            return
+        if self.selection_index >= n - 1:
+            self.selection_index = 0
+        else:
             self.selection_index += 1
 
     def move_page_up(self, page_size: int) -> None:
