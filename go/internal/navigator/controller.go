@@ -329,13 +329,25 @@ func (c *Controller) FlatList() []FlatItem {
 func (c *Controller) SelectionIndex() int { return c.selectionIndex }
 
 func (c *Controller) MoveUp() {
-	if c.selectionIndex > 0 {
+	last := len(c.FlatList()) - 1
+	if last < 0 {
+		return
+	}
+	if c.selectionIndex <= 0 {
+		c.selectionIndex = last
+	} else {
 		c.selectionIndex--
 	}
 }
 
 func (c *Controller) MoveDown() {
-	if c.selectionIndex < len(c.FlatList())-1 {
+	last := len(c.FlatList()) - 1
+	if last < 0 {
+		return
+	}
+	if c.selectionIndex >= last {
+		c.selectionIndex = 0
+	} else {
 		c.selectionIndex++
 	}
 }

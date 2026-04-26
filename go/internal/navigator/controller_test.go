@@ -91,21 +91,20 @@ func TestMoveUpDecrements(t *testing.T) {
 	}
 }
 
-func TestMoveUpClampedAtZero(t *testing.T) {
-	c := NewController(makeWindows("A", "B"))
+func TestMoveUpWrapsToLast(t *testing.T) {
+	c := NewController(makeWindows("A", "B", "C"))
 	c.MoveUp()
-	if c.SelectionIndex() != 0 {
-		t.Errorf("expected 0, got %d", c.SelectionIndex())
+	if c.SelectionIndex() != 2 {
+		t.Errorf("expected 2, got %d", c.SelectionIndex())
 	}
 }
 
-func TestMoveDownClampedAtLast(t *testing.T) {
+func TestMoveDownWrapsToFirst(t *testing.T) {
 	c := NewController(makeWindows("A", "B"))
 	c.MoveDown()
 	c.MoveDown()
-	c.MoveDown()
-	if c.SelectionIndex() != 1 {
-		t.Errorf("expected 1, got %d", c.SelectionIndex())
+	if c.SelectionIndex() != 0 {
+		t.Errorf("expected 0, got %d", c.SelectionIndex())
 	}
 }
 
