@@ -982,7 +982,16 @@ func (o *win32Overlay) paintList(hdc uintptr, w, totalH int) {
 			}
 			fillRect(hdc, 1, rowTop, innerW, rh, bg)
 
-			// Expand/collapse arrow
+			// Icon (drawn before arrow so arrow appears on top)
+			ix := 1 + _iconPX
+			iy := rowTop + _iconPY
+			if hbm, ok := o.iconBitmaps[wi.HWND]; ok {
+				drawIcon(hdc, hbm, ix, iy)
+			} else {
+				fillRect(hdc, ix, iy, _iconSz, _iconSz, 0x00888888)
+			}
+
+			// Expand/collapse arrow (drawn after icon so it is visible)
 			if o.ctrl.TabCount(wi.HWND) > 1 {
 				arrow := "▸"
 				if o.ctrl.IsExpanded(wi.HWND) {
@@ -990,15 +999,6 @@ func (o *win32Overlay) paintList(hdc uintptr, w, totalH int) {
 				}
 				rc := Rect{int32(1 + _arrowX), int32(rowTop + rh/2 - 8), int32(1 + _arrowX + 14), int32(rowTop + rh/2 + 8)}
 				drawTextEllipsis(hdc, o.fontProc, arrow, o.colors.procFg, rc)
-			}
-
-			// Icon
-			ix := 1 + _iconPX
-			iy := rowTop + _iconPY
-			if hbm, ok := o.iconBitmaps[wi.HWND]; ok {
-				drawIcon(hdc, hbm, ix, iy)
-			} else {
-				fillRect(hdc, ix, iy, _iconSz, _iconSz, 0x00888888)
 			}
 
 			// Desktop badge
@@ -1239,7 +1239,14 @@ func (o *win32Overlay) onWindowClick(x, y int) {
 			rh := flatItemHeight(item)
 			if clickY >= cy && clickY < cy+rh {
 				o.ctrl.SetSelectionIndex(i)
-				o.activateSelected()
+				// Click in the arrow area of a window row with tabs: toggle expansion.
+				if item.Window != nil && x < 1+_iconPX+_iconSz/2 && o.ctrl.TabCount(item.Window.HWND) > 1 {
+					o.ctrl.ToggleExpansion(item.Window.HWND)
+					o.invalidate()
+					o.repositionAndResize()
+				} else {
+					o.activateSelected()
+				}
 				return
 			}
 			cy += rh
