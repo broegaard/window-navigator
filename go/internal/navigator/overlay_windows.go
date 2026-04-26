@@ -647,6 +647,7 @@ func (o *win32Overlay) editWndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uin
 			if o.caretAtStart() {
 				if o.ctrl != nil && o.ctrl.BellFilter() {
 					o.ctrl.ToggleBellFilter()
+					o.repositionEdit()
 					o.invalidate()
 					o.repositionAndResize()
 					return 0
@@ -687,6 +688,7 @@ func (o *win32Overlay) editWndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uin
 		if ctrl && (vk == _VK_OEM5 || vk == 0xC0) {
 			if o.ctrl != nil {
 				o.ctrl.ToggleBellFilter()
+				o.repositionEdit()
 				o.invalidate()
 				o.repositionAndResize()
 			}
@@ -1173,6 +1175,7 @@ func (o *win32Overlay) handleEscape() {
 	}
 	if o.ctrl.BellFilter() {
 		o.ctrl.ToggleBellFilter()
+		o.repositionEdit()
 		o.invalidate()
 		o.repositionAndResize()
 		return
