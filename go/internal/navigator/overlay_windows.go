@@ -417,10 +417,8 @@ func (o *win32Overlay) loop() {
 		if r == 0 || r == ^uintptr(0) {
 			break
 		}
-		DbgLog("overlay msg: 0x%04x wp=%#x lp=%#x", msg.message, msg.wParam, msg.lParam)
 		_translateMessage.Call(uintptr(unsafe.Pointer(&msg)))
 		_dispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
-		DbgLog("overlay msg: 0x%04x done", msg.message)
 	}
 
 	// Cleanup
@@ -705,7 +703,6 @@ func (o *win32Overlay) editWndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uin
 // ---------------------------------------------------------------------------
 
 func (o *win32Overlay) handleShow(args *overlayShowArgs) {
-	DbgLog("handleShow: %d windows, desktop=%d", len(args.windows), args.initialDesktop)
 	if o.visible {
 		// Already open: toggle tab expansion
 		if o.ctrl != nil {
@@ -757,18 +754,14 @@ func (o *win32Overlay) handleShow(args *overlayShowArgs) {
 
 	// Tab fetch goroutine
 	wins := args.windows
-	DbgLog("handleShow: starting tab-fetch goroutine for %d windows", len(wins))
 	go func() {
 		runtime.LockOSThread()
 		ole32 := windows.NewLazySystemDLL("ole32.dll")
-		hr, _, _ := ole32.NewProc("CoInitializeEx").Call(0, 0)
-		DbgLog("tab-fetch: CoInitializeEx hr=%#x", hr)
+		ole32.NewProc("CoInitializeEx").Call(0, 0)
 		defer ole32.NewProc("CoUninitialize").Call()
 		defer runtime.UnlockOSThread()
-		for i, w := range wins {
-			DbgLog("tab-fetch: window %d hwnd=%#x", i, w.HWND)
+		for _, w := range wins {
 			tabs := DefaultTabFetcher(w.HWND)
-			DbgLog("tab-fetch: window %d hwnd=%#x done: %d tabs", i, w.HWND, len(tabs))
 			if len(tabs) > 0 {
 				o.mu.Lock()
 				o.pendingTabs[w.HWND] = tabs
@@ -776,22 +769,17 @@ func (o *win32Overlay) handleShow(args *overlayShowArgs) {
 				_postMessageW.Call(o.hwnd, uintptr(_WM_OVL_TABS), w.HWND, 0)
 			}
 		}
-		DbgLog("tab-fetch: goroutine done")
 	}()
 
 	// Icon fetch goroutine
-	DbgLog("handleShow: starting icon-fetch goroutine for %d windows", len(wins))
 	go func() {
-		for i, w := range wins {
-			DbgLog("icon-fetch: window %d hwnd=%#x start", i, w.HWND)
+		for _, w := range wins {
 			img := ExtractIcon(w.HWND)
-			DbgLog("icon-fetch: window %d hwnd=%#x done", i, w.HWND)
 			o.iconsMu.Lock()
 			o.iconImgs[w.HWND] = img
 			o.iconsMu.Unlock()
 			_postMessageW.Call(o.hwnd, uintptr(_WM_OVL_ICON), w.HWND, 0)
 		}
-		DbgLog("icon-fetch: goroutine done")
 	}()
 }
 
@@ -837,7 +825,6 @@ func (o *win32Overlay) doGrabFocus() {
 // ---------------------------------------------------------------------------
 
 func (o *win32Overlay) doPaint(hwnd uintptr) {
-	DbgLog("doPaint: start")
 	var ps paintStruct
 	hdc, _, _ := _beginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 	defer _endPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
@@ -846,13 +833,11 @@ func (o *win32Overlay) doPaint(hwnd uintptr) {
 	_getClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 	w := int(rc.Right)
 	h := int(rc.Bottom)
-	DbgLog("doPaint: hdc=%#x w=%d h=%d", hdc, w, h)
 
 	// Back buffer
 	hdcMem, _, _ := _createCompatibleDC.Call(hdc)
 	hbm, _, _ := _createCompatBmp.Call(hdc, uintptr(w), uintptr(h))
 	old, _, _ := _selectObject.Call(hdcMem, hbm)
-	DbgLog("doPaint: backbuf hdcMem=%#x hbm=%#x", hdcMem, hbm)
 	defer func() {
 		_selectObject.Call(hdcMem, old)
 		_deleteObject.Call(hbm)
@@ -861,19 +846,12 @@ func (o *win32Overlay) doPaint(hwnd uintptr) {
 
 	// Fill border background
 	fillRect(hdcMem, 0, 0, w, h, o.colors.border)
-	DbgLog("doPaint: fillRect border done")
 
 	o.paintEntry(hdcMem, w)
-	DbgLog("doPaint: paintEntry done")
-
 	o.paintStrip(hdcMem, w)
-	DbgLog("doPaint: paintStrip done")
-
 	o.paintList(hdcMem, w, h)
-	DbgLog("doPaint: paintList done")
 
 	_bitBlt.Call(hdc, 0, 0, uintptr(w), uintptr(h), hdcMem, 0, 0, _SRCCOPY)
-	DbgLog("doPaint: done")
 }
 
 func (o *win32Overlay) paintEntry(hdc uintptr, w int) {
@@ -898,15 +876,11 @@ func (o *win32Overlay) paintEntry(hdc uintptr, w int) {
 }
 
 func (o *win32Overlay) paintStrip(hdc uintptr, w int) {
-	DbgLog("paintStrip: enter hdc=%#x w=%d ctrl_nil=%v", hdc, w, o.ctrl == nil)
 	if o.ctrl == nil {
 		return
 	}
-	DbgLog("paintStrip: before fillRect bg")
 	fillRect(hdc, 1, _yStrip, w-2, _stripH, o.colors.bg)
-	DbgLog("paintStrip: before AppIcons")
 	icons := o.ctrl.AppIcons()
-	DbgLog("paintStrip: before AppFilterIndex, %d icons", len(icons))
 	selIdx := o.ctrl.AppFilterIndex()
 	totalW := len(icons) * _stripSlotW
 	if totalW < w-2 {
@@ -914,7 +888,6 @@ func (o *win32Overlay) paintStrip(hdc uintptr, w int) {
 	}
 	_ = totalW
 
-	DbgLog("paintStrip: %d icons", len(icons))
 	for i, wi := range icons {
 		x0 := 1 + i*_stripSlotW
 		x1 := x0 + _stripSlotW
@@ -932,11 +905,8 @@ func (o *win32Overlay) paintStrip(hdc uintptr, w int) {
 		}
 		fillRect(hdc, x0, _yStrip, slotW, _stripH, slotBg)
 
-		hbm, hasIcon := o.iconBitmaps[wi.HWND]
-		DbgLog("paintStrip: icon %d hwnd=%#x hasIcon=%v hbm=%#x", i, wi.HWND, hasIcon, hbm)
-		if hasIcon {
+		if hbm, ok := o.iconBitmaps[wi.HWND]; ok {
 			drawIcon(hdc, hbm, x0+_stripPX, _yStrip+_stripPY)
-			DbgLog("paintStrip: icon %d drawIcon done", i)
 		} else {
 			fillRect(hdc, x0+_stripPX, _yStrip+_stripPY, _iconSz, _iconSz, 0x00888888)
 		}
@@ -962,7 +932,6 @@ func (o *win32Overlay) paintList(hdc uintptr, w, totalH int) {
 	flat := o.ctrl.FlatList()
 	sel := o.ctrl.SelectionIndex()
 	innerW := w - 2
-	DbgLog("paintList: %d items sel=%d", len(flat), sel)
 
 	y := -o.scrollY
 	for i, item := range flat {
@@ -977,7 +946,6 @@ func (o *win32Overlay) paintList(hdc uintptr, w, totalH int) {
 		if rowTop >= _yList+listH {
 			break
 		}
-		DbgLog("paintList: row %d tab=%v", i, item.Tab != nil)
 
 		// Clip row to list area
 		paintY := rowTop
