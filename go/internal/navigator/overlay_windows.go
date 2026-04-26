@@ -4,6 +4,7 @@ package navigator
 
 import (
 	"image"
+	"math"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -41,8 +42,9 @@ var (
 	_createSolidBrush = _gdi32.NewProc("CreateSolidBrush")
 	_setBkColorW      = _gdi32.NewProc("SetBkColor")
 
-	_msimg32    = windows.NewLazySystemDLL("msimg32.dll")
-	_alphaBlend = _msimg32.NewProc("AlphaBlend")
+	_msimg32          = windows.NewLazySystemDLL("msimg32.dll")
+	_alphaBlend       = _msimg32.NewProc("AlphaBlend")
+	_getDpiForSystem  = _user32.NewProc("GetDpiForSystem")
 )
 
 // ---------------------------------------------------------------------------
@@ -146,19 +148,22 @@ const (
 )
 
 // ---------------------------------------------------------------------------
-// Layout constants (at 96 DPI — no scaling for now)
+// Layout variables — defaults at 96 DPI, recomputed by scaleDPI() in loop()
 // ---------------------------------------------------------------------------
 
 const (
+	_maxRows = 10 // dimensionless row count, not scaled
+	_iconSz  = 32 // icon images are always 32×32 px, not scaled
+)
+
+var (
 	_ovlW        = 1240
-	_maxRows     = 10
 	_rowH        = 44
 	_tabRowH     = 28
-	_iconSz      = 32
 	_iconPX      = 8
-	_iconPY      = (_rowH - _iconSz) / 2 // 6
+	_iconPY      = 6  // (_rowH - _iconSz) / 2
 	_badgeW      = 22
-	_textX       = _iconPX + _iconSz + 2 + _badgeW + 4 // 68
+	_textX       = 68 // _iconPX + _iconSz + 2 + _badgeW + 4
 	_titleY      = 7
 	_procY       = 24
 	_notifXOff   = 14
@@ -167,20 +172,59 @@ const (
 	_entInnerPad = 4
 	_entAreaH    = 56
 	_arrowX      = 6
-	_stripH      = _iconSz + 12 // 44
-	_stripSlotW  = _iconSz + 12 // 44
-	_stripPY     = (_stripH - _iconSz) / 2  // 6
-	_stripPX     = (_stripSlotW - _iconSz) / 2 // 6
+	_stripH      = 44 // _iconSz + 12
+	_stripSlotW  = 44 // _iconSz + 12
+	_stripPY     = 6  // (_stripH - _iconSz) / 2
+	_stripPX     = 6  // (_stripSlotW - _iconSz) / 2
 	_stripDivPad = 3
+	_yEntry      = 1
+	_yStrip      = 58  // _yEntry + _entAreaH + 1
+	_yList       = 103 // _yStrip + _stripH + 1
+	_editH       = 26
 
-	// Y offsets within the overlay window (1px outer border)
-	_yEntry = 1
-	_yStrip = _yEntry + _entAreaH + 1
-	_yList  = _yStrip + _stripH + 1
-
-	// Edit control height (Segoe UI 13pt at 96 DPI ≈ 17px; field with padding ≈ 26)
-	_editH = 26
+	// Font character heights in physical pixels at 96 DPI
+	_fontTitleH = 13 // bold, ≈ 10pt
+	_fontProcH  = 11 // regular, ≈ 8pt
+	_fontEntryH = 17 // regular, ≈ 13pt
+	_fontTabH   = 12 // regular, ≈ 9pt
 )
+
+// scaleDPI recomputes all pixel layout variables for a given DPI scale factor
+// (monitorDPI / 96). Call once at overlay startup before creating any controls.
+func scaleDPI(factor float64) {
+	s := func(n int) int { return int(math.Round(float64(n) * factor)) }
+	_ovlW        = s(1240)
+	_rowH        = s(44)
+	_tabRowH     = s(28)
+	_iconPX      = s(8)
+	_iconPY      = (_rowH - _iconSz) / 2
+	_badgeW      = s(22)
+	_textX       = _iconPX + _iconSz + 2 + _badgeW + 4
+	_titleY      = s(7)
+	_procY       = s(24)
+	_notifXOff   = s(14)
+	_badgeEntSz  = s(22)
+	_entFramePad = s(8)
+	_entInnerPad = s(4)
+	_entAreaH    = s(56)
+	_arrowX      = s(6)
+	_stripH      = _iconSz + s(12)
+	_stripSlotW  = _iconSz + s(12)
+	_stripPY     = (_stripH - _iconSz) / 2
+	_stripPX     = (_stripSlotW - _iconSz) / 2
+	_stripDivPad = s(3)
+	_yEntry      = 1
+	_yStrip      = _yEntry + _entAreaH + 1
+	_yList       = _yStrip + _stripH + 1
+	_editH       = s(26)
+	_fontTitleH  = s(13)
+	_fontProcH   = s(11)
+	_fontEntryH  = s(17)
+	_fontTabH    = s(12)
+}
+
+// negH converts a positive pixel height to the negative lfHeight Win32 convention.
+func negH(px int) uintptr { return ^uintptr(px - 1) }
 
 // ---------------------------------------------------------------------------
 // Color palette
@@ -333,6 +377,12 @@ func (o *win32Overlay) Hide() {
 func (o *win32Overlay) loop() {
 	runtime.LockOSThread()
 
+	dpi, _, _ := _getDpiForSystem.Call()
+	if dpi == 0 {
+		dpi = 96
+	}
+	scaleDPI(float64(dpi) / 96.0)
+
 	hInst, _, _ := _getModuleHandleW.Call(0)
 	cursor, _, _ := _loadCursorW.Call(0, 32512) // IDC_ARROW
 
@@ -361,25 +411,25 @@ func (o *win32Overlay) loop() {
 	)
 	o.hwnd = hwnd
 
-	// Create fonts
+	// Create fonts (heights already scaled by scaleDPI above)
 	face, _ := windows.UTF16PtrFromString("Segoe UI")
 	o.fontTitle, _, _ = _createFontW.Call(
-		^uintptr(12), 0, 0, 0, _FW_BOLD,
+		negH(_fontTitleH), 0, 0, 0, _FW_BOLD,
 		0, 0, 0, 0, 0, 0, 0, 0,
 		uintptr(unsafe.Pointer(face)),
 	)
 	o.fontProc, _, _ = _createFontW.Call(
-		^uintptr(10), 0, 0, 0, 0,
+		negH(_fontProcH), 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0,
 		uintptr(unsafe.Pointer(face)),
 	)
 	o.fontEntry, _, _ = _createFontW.Call(
-		^uintptr(16), 0, 0, 0, 0,
+		negH(_fontEntryH), 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0,
 		uintptr(unsafe.Pointer(face)),
 	)
 	o.fontTab, _, _ = _createFontW.Call(
-		^uintptr(11), 0, 0, 0, 0,
+		negH(_fontTabH), 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0,
 		uintptr(unsafe.Pointer(face)),
 	)
