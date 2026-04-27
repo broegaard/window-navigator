@@ -122,77 +122,50 @@ def _start_flash_monitor(flashing: set[int]) -> None:
     threading.Thread(target=_run, daemon=True, name="flash-monitor").start()
 
 
-def _start_hotkey_listener(show_queue: queue.Queue[int], wakeup=None) -> None:
-    """Detect double-tap of Ctrl (either key) within 300 ms and post to show_queue.
+def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
+    """Detect double-tap of Ctrl via GetAsyncKeyState polling.
 
-    Uses WH_KEYBOARD_LL. Unlike RegisterHotKey/WM_HOTKEY, this hook does not
-    receive the foreground-lock exemption, so SetForegroundWindow may be blocked
-    in some timing scenarios. The hook callback must return quickly (Windows
-    unhooks automatically if it stalls > ~200 ms).
+    WH_KEYBOARD_LL is incompatible with Python: its hook proc must acquire the GIL,
+    but the GIL may be held by the Tk main thread at the moment a key event occurs,
+    causing a deadlock that blocks all keyboard input system-wide.
 
-    wakeup, if provided, is called immediately after queuing a trigger so the
-    consumer can react without waiting for its next poll cycle.
+    Poll GetAsyncKeyState every 30 ms instead — no hook, no GIL contention.
+    Two rising edges of either Ctrl key within 300 ms put the foreground HWND on
+    show_queue, which poll_queue picks up on the Tk main thread.
     """
 
     def _run() -> None:
         try:
             import ctypes
-            import ctypes.wintypes as wt
             import time
 
             user32 = ctypes.windll.user32  # type: ignore[attr-defined]
 
-            WH_KEYBOARD_LL = 13
-            WM_KEYDOWN = 0x0100
-            WM_KEYUP = 0x0101
-            WM_SYSKEYUP = 0x0105
             VK_LCONTROL = 0xA2
             VK_RCONTROL = 0xA3
             DOUBLE_TAP_MS = 300.0
+            POLL_S = 0.030
 
-            _last_ctrl_up: list[float] = [0.0]  # monotonic ms of last Ctrl key-up
-            _ctrl_held: list[bool] = [False]
+            last_tap_ms = 0.0
+            ctrl_was_down = False
 
-            HOOKPROC = ctypes.WINFUNCTYPE(
-                ctypes.c_ssize_t, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t
-            )
+            while True:
+                time.sleep(POLL_S)
 
-            class _KBDLLHOOKSTRUCT(ctypes.Structure):
-                _fields_ = [
-                    ("vkCode", wt.DWORD),
-                    ("scanCode", wt.DWORD),
-                    ("flags", wt.DWORD),
-                    ("time", wt.DWORD),
-                    ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-                ]
+                lc = user32.GetAsyncKeyState(VK_LCONTROL)
+                rc = user32.GetAsyncKeyState(VK_RCONTROL)
+                ctrl_down = bool((lc | rc) & 0x8000)
 
-            def _hook_proc(nCode: int, wParam: int, lParam: int) -> int:
-                if nCode >= 0:
-                    kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
-                    if kb.vkCode in (VK_LCONTROL, VK_RCONTROL):
-                        if wParam == WM_KEYDOWN and not _ctrl_held[0]:
-                            _ctrl_held[0] = True
-                            now = time.monotonic() * 1000.0
-                            if now - _last_ctrl_up[0] <= DOUBLE_TAP_MS:
-                                show_queue.put(user32.GetForegroundWindow())
-                                _last_ctrl_up[0] = 0.0  # prevent triple-tap re-trigger
-                                if wakeup is not None:
-                                    wakeup()
-                        elif wParam in (WM_KEYUP, WM_SYSKEYUP):
-                            _ctrl_held[0] = False
-                            _last_ctrl_up[0] = time.monotonic() * 1000.0
-                return user32.CallNextHookEx(None, nCode, wParam, lParam)
+                if ctrl_down and not ctrl_was_down:
+                    now = time.monotonic() * 1000.0
+                    if now - last_tap_ms <= DOUBLE_TAP_MS:
+                        show_queue.put(user32.GetForegroundWindow())
+                        last_tap_ms = 0.0
+                    else:
+                        last_tap_ms = now
 
-            _proc = HOOKPROC(_hook_proc)
-            hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, _proc, None, 0)
-            if not hook:
-                return
+                ctrl_was_down = ctrl_down
 
-            msg = wt.MSG()
-            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-                user32.DispatchMessageW(ctypes.byref(msg))
-
-            user32.UnhookWindowsHookEx(hook)
         except Exception:
             pass
 
@@ -312,7 +285,7 @@ def main() -> None:
         _drain_show_queue()
         root.after(50, poll_queue)
 
-    _start_hotkey_listener(show_queue, wakeup=lambda: root.after(0, _drain_show_queue))
+    _start_hotkey_listener(show_queue)
 
     tray = TrayIcon(on_exit=root.quit)
     initial_desktop = get_current_desktop_number()
