@@ -32,7 +32,7 @@ Press **Ctrl+Shift+Space** to open the overlay.
 | `Enter` | Activate selected window |
 | `Ctrl+Enter` | Move window to current desktop, then activate |
 | `Ctrl+Shift+N` | Jump to desktop N (activates first window there, or switches if empty) |
-| `Esc` | Clear active filter, or dismiss |
+| `Esc` | Clear active filter → reset to active-desktop view → dismiss |
 
 ### Global hotkeys (work without the overlay open)
 
