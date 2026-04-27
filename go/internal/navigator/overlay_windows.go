@@ -32,7 +32,6 @@ var (
 	_loadCursorW       = _user32.NewProc("LoadCursorW")
 	_setTimerW         = _user32.NewProc("SetTimer")
 	_killTimerW        = _user32.NewProc("KillTimer")
-	_setCursorPos      = _user32.NewProc("SetCursorPos")
 	_getKeyStateW      = _user32.NewProc("GetKeyState")
 	_postThreadMsg     = _user32.NewProc("PostThreadMessageW")
 	_setWindowTextW    = _user32.NewProc("SetWindowTextW")
@@ -60,8 +59,6 @@ const (
 	_WM_CHAR          = uint32(0x0102)
 	_WM_COMMAND       = uint32(0x0111)
 	_WM_TIMER         = uint32(0x0113)
-	_WM_LBUTTONDOWN   = uint32(0x0201)
-	_WM_MOUSEWHEEL    = uint32(0x020A)
 	_WM_CTLCOLOREDIT  = uint32(0x0133)
 	_WM_GETDLGCODE    = uint32(0x0087)
 
@@ -538,15 +535,6 @@ func (o *win32Overlay) wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr
 		}
 		return o.entryBrush
 
-	case _WM_MOUSEWHEEL:
-		delta := int16((wp >> 16) & 0xFFFF)
-		o.onMouseWheel(int(delta))
-
-	case _WM_LBUTTONDOWN:
-		x := int(int16(lp & 0xFFFF))
-		y := int(int16((lp >> 16) & 0xFFFF))
-		o.onWindowClick(x, y)
-
 	case _WM_OVL_SHOW:
 		o.mu.Lock()
 		args := o.pendingShow
@@ -851,13 +839,6 @@ func (o *win32Overlay) handleHide() {
 
 	_setWindowPos.Call(o.hwnd, 0, 0, 0, 0, 0,
 		_SWP_NOMOVE|_SWP_NOSIZE|_SWP_HIDEWINDOW|_SWP_NOZORDER|_SWP_NOACTIVATE)
-
-	// Cursor nudge to prevent spinning cursor under hidden overlay area
-	type pt32 struct{ x, y int32 }
-	var pt pt32
-	_getCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
-	_setCursorPos.Call(uintptr(pt.x+1), uintptr(pt.y))
-	_setCursorPos.Call(uintptr(pt.x), uintptr(pt.y))
 
 	// Free icon bitmaps
 	for _, hbm := range o.iconBitmaps {
@@ -1248,62 +1229,6 @@ func (o *win32Overlay) onTextChanged() {
 		o.scrollToSelection()
 		o.invalidate()
 		o.repositionAndResize()
-	}
-}
-
-func (o *win32Overlay) onMouseWheel(delta int) {
-	if !o.visible || o.ctrl == nil {
-		return
-	}
-	lines := delta / 120 // positive = up, negative = down (WHEEL_DELTA = 120)
-	o.scrollY -= lines * _rowH
-	o.clampScroll()
-	o.invalidateList()
-}
-
-func (o *win32Overlay) onWindowClick(x, y int) {
-	if o.ctrl == nil || !o.visible {
-		return
-	}
-	// Icon strip click
-	if y >= _yStrip && y < _yStrip+_stripH {
-		icons := o.ctrl.AppIcons()
-		slotIdx := (x - 1) / _stripSlotW
-		if slotIdx >= 0 && slotIdx < len(icons) {
-			selIdx := o.ctrl.AppFilterIndex()
-			if selIdx != nil && *selIdx == slotIdx {
-				o.ctrl.ClearAppFilter()
-			} else {
-				// Set filter to clicked app by name
-				if slotIdx < len(icons) {
-					name := icons[slotIdx].ProcessName
-					o.ctrl.SetAppFilterByName(name)
-				}
-			}
-			o.invalidate()
-		}
-		return
-	}
-	// List click
-	if y >= _yList {
-		clickY := y - _yList + o.scrollY
-		cy := 0
-		for i, item := range o.ctrl.FlatList() {
-			rh := flatItemHeight(item)
-			if clickY >= cy && clickY < cy+rh {
-				o.ctrl.SetSelectionIndex(i)
-				// Click in the arrow area of a window row with tabs: toggle expansion.
-				if item.Window != nil && x < 1+_iconPX+_iconSz/2 && o.ctrl.TabCount(item.Window.HWND) > 1 {
-					o.ctrl.ToggleExpansion(item.Window.HWND)
-					o.invalidate()
-					o.repositionAndResize()
-				} else {
-					o.activateSelected()
-				}
-				return
-			}
-			cy += rh
-		}
 	}
 }
 
