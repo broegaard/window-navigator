@@ -130,21 +130,79 @@ def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
     causing a deadlock that blocks all keyboard input system-wide.
 
     Poll GetAsyncKeyState every 30 ms instead — no hook, no GIL contention.
-    Two rising edges of either Ctrl key within 300 ms put the foreground HWND on
-    show_queue, which poll_queue picks up on the Tk main thread.
+    Two rising edges of either Ctrl key within 300 ms trigger the overlay:
+
+    On detection, SendInput injects a synthetic VK_F24 keypress. VK_F24 is
+    registered with RegisterHotKey so Windows delivers WM_HOTKEY to this thread.
+    WM_HOTKEY carries the foreground-lock exemption, making SetForegroundWindow in
+    _grab_focus reliable. Falls back to a direct put() if RegisterHotKey fails.
     """
 
     def _run() -> None:
         try:
             import ctypes
+            import ctypes.wintypes as wt
             import time
 
             user32 = ctypes.windll.user32  # type: ignore[attr-defined]
 
             VK_LCONTROL = 0xA2
             VK_RCONTROL = 0xA3
+            VK_F24 = 0x87
             DOUBLE_TAP_MS = 300.0
             POLL_S = 0.030
+            WM_HOTKEY = 0x0312
+            HOTKEY_ID = 100
+            MOD_NOREPEAT = 0x4000
+            INPUT_KEYBOARD = 1
+            KEYEVENTF_KEYUP = 0x0002
+
+            # Create a message queue for this thread so RegisterHotKey / WM_HOTKEY work.
+            msg = wt.MSG()
+            user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
+
+            use_hotkey = bool(user32.RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_F24))
+
+            class _KEYBDINPUT(ctypes.Structure):
+                _fields_ = [
+                    ("wVk", ctypes.c_ushort),
+                    ("wScan", ctypes.c_ushort),
+                    ("dwFlags", ctypes.c_uint),
+                    ("time", ctypes.c_uint),
+                    ("dwExtraInfo", ctypes.c_size_t),
+                ]
+
+            # Union must be sized by its largest member (MOUSEINPUT = 7 × 4 bytes).
+            class _INPUT_PADDING(ctypes.Structure):
+                _fields_ = [("_pad", ctypes.c_byte * 28)]
+
+            class _INPUT_UNION(ctypes.Union):
+                _fields_ = [("ki", _KEYBDINPUT), ("_pad", _INPUT_PADDING)]
+
+            class _INPUT(ctypes.Structure):
+                _fields_ = [("type", ctypes.c_uint), ("_u", _INPUT_UNION)]
+
+            def _send_vk(vk: int, flags: int = 0) -> None:
+                inp = _INPUT()
+                inp.type = INPUT_KEYBOARD
+                inp._u.ki.wVk = vk
+                inp._u.ki.dwFlags = flags
+                user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
+
+            def _trigger() -> None:
+                fg = user32.GetForegroundWindow()
+                if use_hotkey:
+                    _send_vk(VK_F24)
+                    _send_vk(VK_F24, KEYEVENTF_KEYUP)
+                    # Wait up to 100 ms for WM_HOTKEY — it grants the foreground lock.
+                    deadline = time.monotonic() + 0.10
+                    while time.monotonic() < deadline:
+                        if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                            if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                                show_queue.put(fg)
+                                return
+                        time.sleep(0.005)
+                show_queue.put(fg)
 
             last_tap_ms = 0.0
             ctrl_was_down = False
@@ -159,7 +217,7 @@ def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
                 if ctrl_down and not ctrl_was_down:
                     now = time.monotonic() * 1000.0
                     if now - last_tap_ms <= DOUBLE_TAP_MS:
-                        show_queue.put(user32.GetForegroundWindow())
+                        _trigger()
                         last_tap_ms = 0.0
                     else:
                         last_tap_ms = now
