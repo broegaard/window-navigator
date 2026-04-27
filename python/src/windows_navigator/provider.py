@@ -21,8 +21,11 @@ from windows_navigator.models import WindowInfo
 # Matches "(N)" prefix in window titles — apps like Teams/Outlook use e.g. "(3) Inbox".
 _NOTIF_TITLE_RE = re.compile(r"^\(\d+\)")
 
-# Size of icons fetched from the OS
+# Size of icons fetched from the OS (display size)
 _ICON_SIZE = (32, 32)
+
+# Render size for shell-image-list icons; downscaled to _ICON_SIZE via Lanczos
+_FETCH_SIZE = (256, 256)
 
 # Fallback icon — a plain grey square
 _FALLBACK_ICON: Image.Image = Image.new("RGBA", _ICON_SIZE, color=(128, 128, 128, 255))
@@ -58,41 +61,66 @@ def _query_exe_path(handle: object) -> str:
     return buf.value
 
 
+def _shell_imagelist_icon(exe_path: str) -> int:
+    """Return an hIcon at 256×256 from the shell jumbo image list. Caller must DestroyIcon."""
+    try:
+        import ctypes
+        import ctypes.wintypes
+
+        class _SHFILEINFO(ctypes.Structure):
+            _fields_ = [
+                ("hIcon", ctypes.wintypes.HANDLE),
+                ("iIcon", ctypes.c_int),
+                ("dwAttributes", ctypes.c_ulong),
+                ("szDisplayName", ctypes.c_wchar * 260),
+                ("szTypeName", ctypes.c_wchar * 80),
+            ]
+
+        SHGFI_SYSICONINDEX = 0x4000
+        shfi = _SHFILEINFO()
+        if not ctypes.windll.shell32.SHGetFileInfoW(
+            exe_path, 0, ctypes.byref(shfi), ctypes.sizeof(shfi), SHGFI_SYSICONINDEX
+        ):
+            return 0
+
+        # IID_IImageList = {46EB5926-582E-4017-9FDF-E8998DAA0950}
+        # Bytes in memory: Data1 LE, Data2 LE, Data3 LE, Data4 as-is
+        iid = (ctypes.c_byte * 16)(
+            0x26, 0x59, 0xEB, 0x46,
+            0x2E, 0x58,
+            0x17, 0x40,
+            0x9F, 0xDF, 0xE8, 0x99, 0x8D, 0xAA, 0x09, 0x50,
+        )
+        SHIL_JUMBO = 4
+        himl = ctypes.c_void_p()
+        hr = ctypes.windll.shell32.SHGetImageList(SHIL_JUMBO, ctypes.byref(iid), ctypes.byref(himl))
+        if hr != 0 or not himl.value:
+            return 0
+
+        # IImageList::GetIcon is at vtable index 10
+        ILD_TRANSPARENT = 0x00000001
+        hicon = ctypes.wintypes.HANDLE(0)
+        vtbl = ctypes.cast(
+            ctypes.cast(himl, ctypes.POINTER(ctypes.c_void_p))[0],
+            ctypes.POINTER(ctypes.c_void_p),
+        )
+        GetIcon = ctypes.WINFUNCTYPE(
+            ctypes.c_long,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_uint,
+            ctypes.POINTER(ctypes.wintypes.HANDLE),
+        )(vtbl[10])
+
+        if GetIcon(himl, shfi.iIcon, ILD_TRANSPARENT, ctypes.byref(hicon)) != 0:
+            return 0
+        return int(hicon.value)
+    except Exception:
+        return 0
+
+
 class IconExtractor:
     """Extracts a window's app icon from Win32 APIs, with a grey fallback on failure."""
-
-    @staticmethod
-    def _shgetfileinfo_icon(hwnd: int, win32process: object) -> int:
-        try:
-            import ctypes
-            import ctypes.wintypes
-
-            import win32api
-            import win32con
-
-            _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            handle = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-            exe_path = _query_exe_path(handle)
-            win32api.CloseHandle(handle)
-
-            class _SHFILEINFO(ctypes.Structure):
-                _fields_ = [
-                    ("hIcon", ctypes.wintypes.HANDLE),
-                    ("iIcon", ctypes.c_int),
-                    ("dwAttributes", ctypes.c_ulong),
-                    ("szDisplayName", ctypes.c_wchar * 260),
-                    ("szTypeName", ctypes.c_wchar * 80),
-                ]
-
-            SHGFI_ICON = 0x100
-            SHGFI_LARGEICON = 0x0
-            shfi = _SHFILEINFO()
-            result = ctypes.windll.shell32.SHGetFileInfoW(
-                exe_path, 0, ctypes.byref(shfi), ctypes.sizeof(shfi), SHGFI_ICON | SHGFI_LARGEICON
-            )
-            return int(shfi.hIcon) if result else 0
-        except Exception:
-            return 0
 
     @staticmethod
     def extract(hwnd: int) -> Image.Image:
@@ -100,26 +128,66 @@ class IconExtractor:
             import ctypes
             import ctypes.wintypes
 
+            import win32api
             import win32con
             import win32gui
             import win32process
             from PIL import Image as PILImage
 
+            # Resolve exe path once — needed for both shell-image-list and SHGetFileInfoW paths
+            exe_path = ""
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                proc = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+                exe_path = _query_exe_path(proc)
+                win32api.CloseHandle(proc)
+            except Exception:
+                pass
+
             owned_icon = False
-            icon_handle = win32gui.SendMessage(hwnd, win32con.WM_GETICON, win32con.ICON_BIG, 0)
+            render_size = _ICON_SIZE
+
+            # 1. Shell jumbo image list — always 256×256, covers Electron/UWP/browser apps
+            icon_handle = _shell_imagelist_icon(exe_path) if exe_path else 0
+            if icon_handle:
+                owned_icon = True
+                render_size = _FETCH_SIZE
+
+            # 2. WM_GETICON / GetClassLong — app-provided icon (typically 32×32)
+            if not icon_handle:
+                icon_handle = win32gui.SendMessage(hwnd, win32con.WM_GETICON, win32con.ICON_BIG, 0)
             if not icon_handle:
                 icon_handle = win32gui.SendMessage(
                     hwnd, win32con.WM_GETICON, win32con.ICON_SMALL, 0
                 )
             if not icon_handle:
                 icon_handle = win32gui.GetClassLong(hwnd, win32con.GCL_HICON)
-            if not icon_handle:
-                icon_handle = IconExtractor._shgetfileinfo_icon(hwnd, win32process)
-                owned_icon = bool(icon_handle)
+
+            # 3. SHGetFileInfoW 32×32 — last resort
+            if not icon_handle and exe_path:
+
+                class _SHFILEINFO(ctypes.Structure):
+                    _fields_ = [
+                        ("hIcon", ctypes.wintypes.HANDLE),
+                        ("iIcon", ctypes.c_int),
+                        ("dwAttributes", ctypes.c_ulong),
+                        ("szDisplayName", ctypes.c_wchar * 260),
+                        ("szTypeName", ctypes.c_wchar * 80),
+                    ]
+
+                SHGFI_ICON = 0x100
+                SHGFI_LARGEICON = 0x0
+                shfi = _SHFILEINFO()
+                if ctypes.windll.shell32.SHGetFileInfoW(
+                    exe_path, 0, ctypes.byref(shfi), ctypes.sizeof(shfi), SHGFI_ICON | SHGFI_LARGEICON
+                ):
+                    icon_handle = int(shfi.hIcon)
+                    owned_icon = True
+
             if not icon_handle:
                 return _FALLBACK_ICON.copy()
 
-            w, h = _ICON_SIZE
+            w, h = render_size
 
             class _BITMAPINFOHEADER(ctypes.Structure):
                 _fields_ = [
@@ -172,7 +240,10 @@ class IconExtractor:
             if owned_icon:
                 win32gui.DestroyIcon(icon_handle)
 
-            return PILImage.frombuffer("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
+            img = PILImage.frombuffer("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
+            if render_size != _ICON_SIZE:
+                img = img.resize(_ICON_SIZE, PILImage.LANCZOS)
+            return img
         except Exception:
             return _FALLBACK_ICON.copy()
 
