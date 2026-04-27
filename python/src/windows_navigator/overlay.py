@@ -641,7 +641,15 @@ class NavigatorOverlay:
             self._refresh_icon_strip()
             self._refresh_canvas()
         else:
-            self.hide()
+            startup_nums = [self._initial_desktop] if self._initial_desktop else []
+            at_startup = (
+                self._desktop_prefix_nums == startup_nums
+                and (self._entry is None or self._entry.get() == "")
+            )
+            if at_startup:
+                self.hide()
+            else:
+                self._set_query_state(startup_nums, "")
 
     def _on_backspace(self, _event: tk.Event) -> str | None:  # type: ignore[type-arg]
         """Backspace at caret 0: remove the rightmost badge (bell first, then desktop badges)."""

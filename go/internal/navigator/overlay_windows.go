@@ -307,11 +307,12 @@ type win32Overlay struct {
 	pendingTabs map[uintptr][]TabInfo
 
 	// Loop-thread-only state
-	ctrl        *Controller
-	visible     bool
-	closing     bool
-	pendingHide bool
-	desktopNums []int
+	ctrl           *Controller
+	visible        bool
+	closing        bool
+	pendingHide    bool
+	desktopNums    []int
+	initialDesktop int
 
 	scrollY int // pixel scroll offset into the list
 
@@ -758,6 +759,7 @@ func (o *win32Overlay) handleShow(args *overlayShowArgs) {
 	o.closing = false
 	o.scrollY = 0
 	o.desktopNums = nil
+	o.initialDesktop = args.initialDesktop
 
 	// Free icon bitmaps from previous show
 	for _, hbm := range o.iconBitmaps {
@@ -1216,7 +1218,30 @@ func (o *win32Overlay) handleEscape() {
 		o.invalidate()
 		return
 	}
+	if !o.isAtStartupState() {
+		o.resetToStartupState()
+		return
+	}
 	o.handleHide()
+}
+
+func (o *win32Overlay) isAtStartupState() bool {
+	if o.ctrl.Query() != "" {
+		return false
+	}
+	if o.initialDesktop == 0 {
+		return len(o.desktopNums) == 0
+	}
+	return len(o.desktopNums) == 1 && o.desktopNums[0] == o.initialDesktop
+}
+
+func (o *win32Overlay) resetToStartupState() {
+	_setWindowTextW.Call(o.hwndEdit, 0)
+	if o.initialDesktop > 0 {
+		o.setDesktopFilter([]int{o.initialDesktop})
+	} else {
+		o.setDesktopFilter(nil)
+	}
 }
 
 func (o *win32Overlay) onTextChanged() {
