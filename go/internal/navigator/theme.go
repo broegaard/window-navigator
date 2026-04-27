@@ -5,14 +5,14 @@ import "fmt"
 // DesktopColors is the shared palette for virtual desktop badges and the tray icon.
 // Index 0 = desktop 1, cycling when desktop number exceeds the slice length.
 var DesktopColors = [][3]uint8{
-	{0, 60, 150},   // blue
-	{160, 50, 0},   // orange
-	{0, 120, 60},   // green
-	{120, 0, 120},  // purple
-	{160, 0, 40},   // red
-	{0, 110, 120},  // teal
-	{100, 80, 0},   // amber
-	{60, 60, 60},   // grey
+	{160, 45, 15},  // vermilion   hue~15°
+	{135, 100, 0},  // dark amber  hue~55°
+	{55, 95, 0},    // dark lime   hue~100°
+	{0, 115, 80},   // dark jade   hue~145°
+	{0, 100, 120},  // ocean teal  hue~190°
+	{25, 65, 160},  // cobalt blue hue~230°
+	{80, 0, 155},   // deep violet hue~270°
+	{145, 0, 115},  // dark rose   hue~315°
 }
 
 // DesktopBadgeColor returns a CSS hex color string (e.g. "#003c96") for the given
