@@ -311,6 +311,7 @@ type win32Overlay struct {
 	visible        bool
 	closing        bool
 	pendingHide    bool
+	grabbingFocus  bool // true while TIMER_GRAB_FOCUS is pending; suppresses auto-hide
 	desktopNums    []int
 	initialDesktop int
 
@@ -497,7 +498,7 @@ func (o *win32Overlay) wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr
 
 	case _WM_ACTIVATE:
 		if wp&0xFFFF == 0 { // WA_INACTIVE
-			if !o.closing && o.visible {
+			if !o.closing && o.visible && !o.grabbingFocus {
 				if o.pendingHide {
 					_killTimerW.Call(hwnd, _TIMER_PENDING_HIDE)
 				}
@@ -519,6 +520,9 @@ func (o *win32Overlay) wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr
 			o.handleHide()
 		case _TIMER_GRAB_FOCUS:
 			_killTimerW.Call(hwnd, _TIMER_GRAB_FOCUS)
+			o.grabbingFocus = false
+			_killTimerW.Call(hwnd, _TIMER_PENDING_HIDE) // safety: discard any hide that snuck in during grab
+			o.pendingHide = false
 			o.doGrabFocus()
 		}
 
@@ -792,6 +796,7 @@ func (o *win32Overlay) handleShow(args *overlayShowArgs) {
 	o.invalidate()
 
 	// Delayed focus grab (50 ms, like Python)
+	o.grabbingFocus = true
 	_setTimerW.Call(o.hwnd, _TIMER_GRAB_FOCUS, 50, 0)
 
 	// Tab fetch goroutine — must run on a locked OS thread with COM initialized.
@@ -836,6 +841,7 @@ func (o *win32Overlay) handleHide() {
 	o.visible = false
 	o.closing = false
 	o.pendingHide = false
+	o.grabbingFocus = false
 	_killTimerW.Call(o.hwnd, _TIMER_PENDING_HIDE)
 	_killTimerW.Call(o.hwnd, _TIMER_GRAB_FOCUS)
 
