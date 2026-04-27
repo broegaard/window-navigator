@@ -37,6 +37,8 @@ Cross-goroutine UI state changes are posted as `WM_APP+N` messages via `PostMess
 
 **DPI scaling** — `scaleDPI(factor float64)` in `overlay_windows.go` recomputes all pixel layout vars at the top of the overlay `loop()` goroutine. Call `GetDpiForSystem()` to get the system DPI, then `scaleDPI(dpi/96.0)` before creating any window or font. Icon bitmaps are always loaded and rendered at 32×32 px (not scaled), matching the Python `init_scale()` approach. Font heights are stored as 96-DPI pixel values and passed through `negH(px)` when calling `CreateFontW`.
 
+**Overlay focus-grab window** — `handleShow` sets `o.grabbingFocus = true` before starting `TIMER_GRAB_FOCUS` (50 ms). The `WM_ACTIVATE(WA_INACTIVE)` handler skips auto-hide while `grabbingFocus` is set, preventing a race where `TIMER_PENDING_HIDE` fires before the grab completes. `TIMER_GRAB_FOCUS` also defensively kills any `TIMER_PENDING_HIDE` that snuck in. The `TIMER_PENDING_HIDE` debounce is 200 ms (not 50 ms) to survive transient focus thefts from UIA calls and other background events.
+
 ## Gotchas
 
 - **`windows.WM_APP` is not exported** by `golang.org/x/sys v0.43.0`. Use the literal `0x8000`.
@@ -51,3 +53,5 @@ Cross-goroutine UI state changes are posted as `WM_APP+N` messages via `PostMess
 - **`HSHELL_FLASH (0x8006)` vs `HSHELL_REDRAW (6)` are distinct WPARAM values.** Handle in separate `switch` cases. Go `uintptr` is unsigned so `0x8006` compares correctly — no signed-32-bit overflow unlike Python ctypes.
 - **`Controller` package-private fields** — `overlay_windows.go` and `controller.go` are in the same package (`navigator`), so overlay code can access `c.selectionIndex` and `c.appFilter` directly.
 - **`CreateFontW` negative `lfHeight`** — a negative value means character height (cap height, excluding internal leading); a positive value means cell height. Use `negH(px) = ^uintptr(px-1)` to convert a desired pixel height to the Win32 two's-complement negative convention.
+- **`WM_TIMER` delivery order is non-deterministic when two timers expire simultaneously.** `WM_TIMER` is synthesised by `GetMessage` on demand, not queued. If `TIMER_PENDING_HIDE` and `TIMER_GRAB_FOCUS` share the same 50 ms deadline, either can fire first. Use the `grabbingFocus` flag to guard the critical window instead of relying on timer ordering.
+- **`IUIAutomation::ElementFromHandle` can briefly steal focus.** Cross-process UIA calls (tab fetch goroutine) send `WM_GETOBJECT` to browser processes; some browsers briefly become the foreground window while servicing these, sending `WM_ACTIVATE(WA_INACTIVE)` to the overlay. The 200 ms `TIMER_PENDING_HIDE` debounce is sized to outlast this.
