@@ -498,11 +498,15 @@ func (o *win32Overlay) wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr
 
 	case _WM_ACTIVATE:
 		if wp&0xFFFF == 0 { // WA_INACTIVE
+			stealerTitle := getWindowTitle(lp)
+			stealerEx, _, _ := _getWindowLong.Call(lp, _GWL_EXSTYLE)
+			DbgLog("WM_ACTIVATE WA_INACTIVE: stealer=%#x title=%q exStyle=%#x grabbingFocus=%v closing=%v visible=%v",
+				lp, stealerTitle, stealerEx, o.grabbingFocus, o.closing, o.visible)
 			if !o.closing && o.visible && !o.grabbingFocus {
 				if o.pendingHide {
 					_killTimerW.Call(hwnd, _TIMER_PENDING_HIDE)
 				}
-				_setTimerW.Call(hwnd, _TIMER_PENDING_HIDE, 50, 0)
+				_setTimerW.Call(hwnd, _TIMER_PENDING_HIDE, 200, 0)
 				o.pendingHide = true
 			}
 		} else {
@@ -517,6 +521,7 @@ func (o *win32Overlay) wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr
 		case _TIMER_PENDING_HIDE:
 			_killTimerW.Call(hwnd, _TIMER_PENDING_HIDE)
 			o.pendingHide = false
+			DbgLog("TIMER_PENDING_HIDE fired: hiding overlay")
 			o.handleHide()
 		case _TIMER_GRAB_FOCUS:
 			_killTimerW.Call(hwnd, _TIMER_GRAB_FOCUS)
