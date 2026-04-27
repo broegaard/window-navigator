@@ -1005,7 +1005,7 @@ func (o *win32Overlay) paintList(hdc uintptr, w, totalH int) {
 				bg = o.colors.rowSel
 			}
 			fillRect(hdc, 1, rowTop, innerW, rh, bg)
-			rc := Rect{int32(1 + _textX), int32(rowTop + rh/2 - 6), int32(1 + innerW - 8), int32(rowTop + rh/2 + 6)}
+			rc := Rect{int32(1 + _textX), int32(rowTop), int32(1 + innerW - 8), int32(rowTop + rh)}
 			drawTextEllipsis(hdc, o.fontTab, item.Tab.Name, o.colors.titleFg, rc)
 		} else {
 			wi := item.Window
