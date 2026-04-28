@@ -31,7 +31,7 @@ Run a single test file: `pytest tests/test_filter.py`
 | UI | `tkinter` (stdlib) |
 | Win32 API | `pywin32` (`win32gui`, `win32process`, `win32api`, `win32con`) |
 | System tray | `pystray` + `Pillow` |
-| Global hotkey | `WH_KEYBOARD_LL` hook via ctypes — double-tap Ctrl (no extra dep) |
+| Global hotkey | `GetAsyncKeyState` polling + `RegisterHotKey`/`SendInput` trick via ctypes — double-tap Ctrl (no extra dep) |
 | Theme detection | `darkdetect` |
 | Virtual desktop | Raw ctypes COM + `pyvda` (Windows 11 22H2+ workaround) |
 | UIA (tabs) | `comtypes` |
@@ -72,8 +72,8 @@ tests/
 
 ### Event flow
 
-1. `_start_hotkey_listener` thread detects double-tap Ctrl via `WH_KEYBOARD_LL` → enqueues token to `show_queue` and calls `wakeup()` → `root.after(0, _drain_show_queue)`
-2. `_drain_show_queue()` runs on the Tk main thread (immediately via wakeup, or ≤ 50 ms via `poll_queue` fallback), calls `provider.get_windows()`
+1. `_start_hotkey_listener` thread polls `GetAsyncKeyState` every 30 ms; on double-tap Ctrl it injects a synthetic `VK_F24` via `SendInput`, drains `WM_HOTKEY` from its own message queue (granting the foreground-lock exemption), then enqueues the foreground HWND to `show_queue`
+2. `_drain_show_queue()` runs on the Tk main thread (≤ 50 ms via `poll_queue`), calls `provider.get_windows()`
 3. Current desktop derived from windows, passed as `initial_desktop=N` to `overlay.show()`
 4. Overlay renders; user interaction updates `OverlayController` state (pure Python)
 5. On Enter: `activate_window(hwnd)` → `overlay.hide()`; on Ctrl+Enter: move + activate + hide
@@ -82,8 +82,9 @@ tests/
 ### Key design decisions
 
 - **Single hidden Tk root** — one withdrawn `Tk()` root with a `Toplevel` overlay prevents event-loop conflicts with pystray.
-- **`WH_KEYBOARD_LL` for double-tap Ctrl detection** — fires on two Ctrl key-down events within 300 ms (measured key-up → key-down to avoid counting held auto-repeat). Unlike `RegisterHotKey`/`WM_HOTKEY`, this hook does NOT receive the foreground-lock exemption, so `SetForegroundWindow` may occasionally be blocked. The hook callback must return in < ~200 ms or Windows silently removes the hook.
-- **`wakeup` callback eliminates polling lag** — after queuing a show trigger, the hook thread calls `root.after(0, _drain_show_queue)`, which is thread-safe in tkinter and wakes the event loop in < 1 ms. The 50 ms `poll_queue` timer remains as a fallback. `_drain_show_queue` is idempotent so double-firing is safe.
+- **`GetAsyncKeyState` polling for double-tap Ctrl detection** — polls every 30 ms, detects two rising edges within 300 ms. `WH_KEYBOARD_LL` was rejected: its hook proc must acquire the GIL, which the Tk main thread can hold during event callbacks, causing a system-wide keyboard deadlock.
+- **`RegisterHotKey`/`SendInput` trick for foreground-lock acquisition** — `SetForegroundWindow` silently fails without the foreground lock. On double-tap, the listener injects a synthetic `VK_F24` keypress via `SendInput`; because `VK_F24` is registered with `RegisterHotKey(MOD_NOREPEAT)`, Windows delivers `WM_HOTKEY` to the listener thread, granting the process the foreground-lock exemption. The listener drains that message via `PeekMessageW` before putting to `show_queue`, so `_grab_focus`'s subsequent `SetForegroundWindow` is covered. Falls back to direct `put()` if `RegisterHotKey` fails (e.g. key already claimed). `PeekMessageW` must be called once before `RegisterHotKey` to create a message queue for the thread — Win32 threads have no queue until they call a message function.
+- **`_drain_show_queue` is idempotent** — the 50 ms `poll_queue` timer is the only consumer path; double-firing is safe.
 - **Pure Python controller** — all filter/selection logic in `controller.py` with no Tk import, fully testable on Linux.
 - **`_set_query_state` is the only correct way to change badge state** — any handler modifying `_desktop_prefix_nums` must call `_set_query_state(nums, text)`, not `_update_prefix_badges` + `_on_text_changed` separately. Only `_set_query_state` reaches `controller.set_desktop_nums`, keeping badges and controller in sync.
 - **Activation before hide** — `_activate_selected` calls the activate callback BEFORE `hide()`. `_closing = True` is set first so `_on_focus_out` doesn't schedule a spurious `hide()` during the focus handoff.
