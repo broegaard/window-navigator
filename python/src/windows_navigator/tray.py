@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw
 from windows_navigator.theme import DESKTOP_COLORS as _DESKTOP_COLORS
 
 _ICON_SIZE = 64
+_font_cache: dict[int, object | None] = {}
 
 
 def _make_tray_icon(desktop_number: int) -> Image.Image:
@@ -38,19 +39,25 @@ def _make_tray_icon(desktop_number: int) -> Image.Image:
 
 
 def _load_font(size: int) -> object | None:
+    if size in _font_cache:
+        return _font_cache[size]
     from PIL import ImageFont
-    # Prefer bold variants
     for name in (
         "arialbd.ttf", "Arial Bold.ttf", "DejaVuSans-Bold.ttf",
         "arial.ttf", "Arial.ttf", "DejaVuSans.ttf",
     ):
         try:
-            return ImageFont.truetype(name, size)
+            font = ImageFont.truetype(name, size)
+            _font_cache[size] = font
+            return font
         except Exception:
             pass
     try:
-        return ImageFont.load_default(size=size)
+        font = ImageFont.load_default(size=size)
+        _font_cache[size] = font
+        return font
     except Exception:
+        _font_cache[size] = None
         return None
 
 
