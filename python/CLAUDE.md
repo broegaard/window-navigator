@@ -23,6 +23,16 @@ Run a single test file: `pytest tests/test_filter.py`
 
 `make test` requires `pytest` on `PATH`; if the venv is not activated: `.venv/bin/python -m pytest tests/ -q`
 
+```bash
+# Release (requires: pip install build, gh authenticated)
+./release.sh          # patch bump (0.1.0 → 0.1.1)
+./release.sh minor    # minor bump
+./release.sh major    # major bump
+./release.sh 1.2.3    # explicit version
+```
+
+`release.sh` runs lint + tests, bumps `pyproject.toml`, builds wheel + sdist, commits, tags, pushes, and creates a GitHub release via `gh`.
+
 ## Tech stack
 
 | Concern | Choice |
