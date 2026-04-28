@@ -4,7 +4,14 @@ A keyboard-driven window switcher for Windows with virtual desktop awareness.
 
 ## Usage
 
-Double-tap **Ctrl** to open the overlay (or **Win+Alt+Space** — configurable via the tray icon → Settings).
+Double-tap **Ctrl** to open the overlay. The trigger hotkey is configurable via the tray icon → Settings:
+
+| Option | Description |
+|--------|-------------|
+| Double-tap Ctrl | Press Ctrl twice quickly |
+| Win + Alt + Space | Chord hotkey |
+| Ctrl + Shift + Space | Chord hotkey |
+| Hold Ctrl, double-tap Shift | Hold Ctrl, press Shift twice quickly |
 
 Double-tap **Ctrl** again while the overlay is open to expand / collapse all browser tabs.
 
