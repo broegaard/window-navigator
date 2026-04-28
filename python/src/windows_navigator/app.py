@@ -364,24 +364,31 @@ def main() -> None:
     _start_move_hotkey_listener(move_queue)
 
     def _drain_show_queue() -> None:
+        # Drain all queued items but process only once — multiple queued hotkey events
+        # within one poll cycle would otherwise call overlay.show() (toggle) N times,
+        # causing an even number of toggles to cancel each other ("nothing changes").
+        has_items = False
         try:
             while True:
-                show_queue.get_nowait()  # fg_hwnd captured at hotkey time (no longer used)
-                windows = provider.get_windows()
-                current_desktop = next(
-                    (
-                        w.desktop_number
-                        for w in windows
-                        if w.is_current_desktop and w.desktop_number > 0
-                    ),
-                    0,
-                )
-                overlay.show(windows, initial_desktop=current_desktop)
-                tray.update(current_desktop)
-                if current_desktop > 0:
-                    _current_desktop[0] = current_desktop
+                show_queue.get_nowait()
+                has_items = True
         except queue.Empty:
             pass
+        if not has_items:
+            return
+        windows = provider.get_windows()
+        current_desktop = next(
+            (
+                w.desktop_number
+                for w in windows
+                if w.is_current_desktop and w.desktop_number > 0
+            ),
+            0,
+        )
+        overlay.show(windows, initial_desktop=current_desktop)
+        tray.update(current_desktop)
+        if current_desktop > 0:
+            _current_desktop[0] = current_desktop
 
     def poll_queue() -> None:
         _drain_show_queue()

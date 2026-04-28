@@ -236,10 +236,14 @@ class OverlayController:
             if w.hwnd in self._tabs and len(self._tabs[w.hwnd]) > 1
         }
         if not hwnds_with_tabs:
-            self._want_all_expanded = not self._want_all_expanded
+            # Only flip the deferred flag when some filtered windows still have tabs loading.
+            # If all filtered windows already have tab data (just single-tab), do nothing —
+            # flipping would corrupt intent state without any visible effect.
+            if any(w.hwnd not in self._tabs for w in self.filtered_windows):
+                self._want_all_expanded = not self._want_all_expanded
             return
         if self._expanded & hwnds_with_tabs:
-            self._expanded -= hwnds_with_tabs
+            self._expanded.clear()
             self._want_all_expanded = False
         else:
             self._expanded |= hwnds_with_tabs

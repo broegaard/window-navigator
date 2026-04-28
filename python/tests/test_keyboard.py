@@ -883,8 +883,8 @@ def test_toggle_all_expansions_respects_active_filter():
     assert not ctrl.is_expanded(2)  # not visible — not touched
 
 
-def test_toggle_all_expansions_collapse_only_touches_visible_windows():
-    """Collapsing leaves non-visible expanded windows untouched."""
+def test_toggle_all_expansions_collapse_clears_all_expanded():
+    """Collapsing clears all expanded windows, including hidden ones."""
     windows = [
         WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe"),
         WindowInfo(hwnd=2, title="Firefox", process_name="firefox.exe"),
@@ -895,9 +895,45 @@ def test_toggle_all_expansions_collapse_only_touches_visible_windows():
     ctrl._expanded.add(1)
     ctrl._expanded.add(2)
     ctrl.set_query("chrome")  # only chrome visible
-    ctrl.toggle_all_expansions()  # collapses visible chrome; firefox not in hwnds_with_tabs
+    ctrl.toggle_all_expansions()  # collapse — should clear all, not just visible
     assert not ctrl.is_expanded(1)
-    assert ctrl.is_expanded(2)  # hidden — not touched by collapse
+    assert not ctrl.is_expanded(2)  # hidden, but still cleared
+
+
+def test_toggle_all_expansions_no_residual_after_filter_expand_unfilter_collapse():
+    """Expand while filtered, remove filter, collapse — no windows remain expanded."""
+    windows = [
+        WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe"),
+        WindowInfo(hwnd=2, title="Firefox", process_name="firefox.exe"),
+    ]
+    ctrl = OverlayController(windows)
+    ctrl.set_tabs(1, _make_tabs(1, "Tab A", "Tab B"))
+    ctrl.set_tabs(2, _make_tabs(2, "Tab C", "Tab D"))
+    ctrl.set_query("chrome")
+    ctrl.toggle_all_expansions()  # expand only Chrome (visible)
+    assert ctrl.is_expanded(1)
+    assert not ctrl.is_expanded(2)
+    ctrl.set_query("")  # remove filter — Firefox still not expanded
+    ctrl.toggle_all_expansions()  # Chrome is expanded → collapse all
+    assert not ctrl.is_expanded(1)
+    assert not ctrl.is_expanded(2)
+
+
+def test_toggle_all_expansions_no_flag_corruption_for_single_tab_filter():
+    """Toggling when filtered to a single-tab window must not corrupt _want_all_expanded."""
+    windows = [
+        WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe"),
+        WindowInfo(hwnd=2, title="Notepad", process_name="notepad.exe"),
+    ]
+    ctrl = OverlayController(windows)
+    ctrl.set_tabs(1, _make_tabs(1, "Tab A", "Tab B"))  # 2 tabs
+    ctrl.set_tabs(2, _make_tabs(2, "Tab A"))  # 1 tab — not expandable
+    ctrl._want_all_expanded = True  # simulate prior expand-all intent
+    ctrl.set_query("notepad")  # filter to single-tab window only
+    ctrl.toggle_all_expansions()  # nothing to expand — flag must stay unchanged
+    assert ctrl._want_all_expanded  # still True — not corrupted
+    ctrl.toggle_all_expansions()  # second press — still nothing to expand
+    assert ctrl._want_all_expanded  # flag unchanged again
 
 
 def test_toggle_all_expansions_deferred_expands_when_tabs_arrive():
