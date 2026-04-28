@@ -178,13 +178,20 @@ class NavigatorOverlay:
         self._pending_hide: str | None = None  # after() ID for a scheduled hide()
         self._bell_badge_widget: tk.Label | None = None
         self._count_label: tk.Label | None = None
+        self._fetch_time_label: tk.Label | None = None
+        self._fetch_ms: float | None = None
         self._closing: bool = False  # True while handing focus to a target window
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def show(self, windows: list[WindowInfo], initial_desktop: int = 0) -> None:
+    def show(
+        self,
+        windows: list[WindowInfo],
+        initial_desktop: int = 0,
+        fetch_ms: float | None = None,
+    ) -> None:
         """Open (or refresh) the overlay with *windows*.
 
         *initial_desktop* pre-selects a desktop badge so the user sees only that
@@ -205,6 +212,7 @@ class NavigatorOverlay:
 
         self._controller = self._controller_factory(windows)
         self._initial_desktop = initial_desktop
+        self._fetch_ms = fetch_ms
         threading.Thread(target=self._fetch_tabs_bg, args=(list(windows),), daemon=True).start()
         self._build_ui()
 
@@ -240,6 +248,8 @@ class NavigatorOverlay:
             self._desktop_prefix_nums = []
             self._bell_badge_widget = None
             self._count_label = None
+            self._fetch_time_label = None
+            self._fetch_ms = None
 
     # ------------------------------------------------------------------
     # UI construction
@@ -333,10 +343,20 @@ class NavigatorOverlay:
             bg=c["bg"],
             fg=c["proc_fg"],
             font=("Segoe UI", 8),
+            anchor="w",
+            padx=6,
+        )
+        self._count_label.pack(side="left", fill="y")
+        self._fetch_time_label = tk.Label(
+            footer,
+            text=f"{self._fetch_ms:.0f} ms" if self._fetch_ms is not None else "",
+            bg=c["bg"],
+            fg=c["proc_fg"],
+            font=("Segoe UI", 8),
             anchor="e",
             padx=6,
         )
-        self._count_label.pack(fill="both", expand=True)
+        self._fetch_time_label.pack(side="right", fill="y")
 
         # --- Bindings ---
         assert self._entry is not None

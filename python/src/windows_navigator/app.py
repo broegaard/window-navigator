@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import re
 import threading
+import time
 import tkinter as tk
 
 from windows_navigator.config import HotkeyChoice, load_hotkey
@@ -519,7 +520,9 @@ def main() -> None:
             pass
         if not has_items:
             return
+        t0 = time.monotonic()
         windows = provider.get_windows()
+        fetch_ms = (time.monotonic() - t0) * 1000.0
         current_desktop = next(
             (
                 w.desktop_number
@@ -528,7 +531,7 @@ def main() -> None:
             ),
             0,
         )
-        overlay.show(windows, initial_desktop=current_desktop)
+        overlay.show(windows, initial_desktop=current_desktop, fetch_ms=fetch_ms)
         tray.update(current_desktop)
         if current_desktop > 0:
             _current_desktop[0] = current_desktop
