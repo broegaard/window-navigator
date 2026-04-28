@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import re
 import threading
@@ -9,6 +10,15 @@ import time
 import tkinter as tk
 
 from windows_navigator.config import HotkeyChoice, load_hotkey
+
+_log = logging.getLogger(__name__)
+
+# Hotkey IDs passed to RegisterHotKey — must not collide with each other or with
+# the move-hotkey IDs (1 = left, 2 = right) registered in _start_move_hotkey_listener.
+_HOTKEY_ID_DOUBLE_TAP_CTRL = 100
+_HOTKEY_ID_WIN_ALT_SPACE = 200
+_HOTKEY_ID_CTRL_SHIFT_SPACE = 300
+_HOTKEY_ID_DOUBLE_TAP_SHIFT = 400
 
 
 def _start_flash_monitor(flashing: set[int]) -> None:
@@ -120,7 +130,7 @@ def _start_flash_monitor(flashing: set[int]) -> None:
             u32.DeregisterShellHookWindow(hwnd)
             u32.DestroyWindow(hwnd)
         except Exception:
-            pass
+            _log.exception("flash-monitor thread crashed")
 
     threading.Thread(target=_run, daemon=True, name="flash-monitor").start()
 
@@ -230,7 +240,7 @@ def _polling_double_tap_listener(
             user32.UnregisterHotKey(None, hotkey_id)
 
     except Exception:
-        pass
+        _log.exception("polling-double-tap-listener thread crashed")
 
 
 def _run_registered_hotkey(
@@ -272,7 +282,7 @@ def _run_registered_hotkey(
             user32.UnregisterHotKey(None, hotkey_id)
 
     except Exception:
-        pass
+        _log.exception("registered-hotkey-listener thread crashed")
 
 
 def _start_hotkey_listener(
@@ -295,17 +305,21 @@ def _start_hotkey_listener(
     if choice == HotkeyChoice.WIN_ALT_SPACE:
         target = _run_registered_hotkey
         kwargs: dict[str, int] = {
-            "hotkey_id": 200, "modifiers": MOD_WIN | MOD_ALT | MOD_NOREPEAT, "vk": VK_SPACE,
+            "hotkey_id": _HOTKEY_ID_WIN_ALT_SPACE,
+            "modifiers": MOD_WIN | MOD_ALT | MOD_NOREPEAT,
+            "vk": VK_SPACE,
         }
     elif choice == HotkeyChoice.CTRL_SHIFT_SPACE:
         target = _run_registered_hotkey
         kwargs = {
-            "hotkey_id": 300, "modifiers": MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, "vk": VK_SPACE,
+            "hotkey_id": _HOTKEY_ID_CTRL_SHIFT_SPACE,
+            "modifiers": MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
+            "vk": VK_SPACE,
         }
     elif choice == HotkeyChoice.CTRL_DOUBLE_TAP_SHIFT:
         target = _polling_double_tap_listener
         kwargs = {
-            "hotkey_id": 400,
+            "hotkey_id": _HOTKEY_ID_DOUBLE_TAP_SHIFT,
             "tap_vk_l": VK_LSHIFT,
             "tap_vk_r": VK_RSHIFT,
             "guard_vk_l": VK_LCONTROL,
@@ -313,7 +327,11 @@ def _start_hotkey_listener(
         }
     else:
         target = _polling_double_tap_listener
-        kwargs = {"hotkey_id": 100, "tap_vk_l": VK_LCONTROL, "tap_vk_r": VK_RCONTROL}
+        kwargs = {
+            "hotkey_id": _HOTKEY_ID_DOUBLE_TAP_CTRL,
+            "tap_vk_l": VK_LCONTROL,
+            "tap_vk_r": VK_RCONTROL,
+        }
     threading.Thread(
         target=target, args=(show_queue, stop_event), kwargs=kwargs,
         daemon=True, name="hotkey-listener",
@@ -357,7 +375,7 @@ def _start_move_hotkey_listener(move_queue: queue.Queue[tuple[int, int]]) -> Non
             if ok_right:
                 user32.UnregisterHotKey(None, ID_RIGHT)
         except Exception:
-            pass
+            _log.exception("move-hotkey-listener thread crashed")
 
     threading.Thread(target=_run, daemon=True, name="move-hotkey-listener").start()
 

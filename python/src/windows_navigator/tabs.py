@@ -9,6 +9,7 @@ _UIA_ControlTypePropertyId = 30003
 _UIA_NamePropertyId = 30005
 _UIA_SelectionItemPatternId = 10010
 _TreeScope_Children = 2
+_MAX_UIA_DEPTH = 10
 
 
 def _create_uia():
@@ -32,7 +33,7 @@ def _get_children(element, uia) -> list:
         return []
 
 
-def _collect_tab_items(element, uia, depth: int = 0, max_depth: int = 10) -> list:
+def _collect_tab_items(element, uia, depth: int = 0, max_depth: int = _MAX_UIA_DEPTH) -> list:
     """Return all UIA TabItem elements found under *element*, stopping at Document nodes.
 
     Document (50030) is the rendered web-page area — in-page ARIA tab widgets live inside
