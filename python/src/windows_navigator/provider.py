@@ -10,6 +10,8 @@ on any platform by substituting a mock WindowProvider.
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 import os
 import re
 from collections import OrderedDict
@@ -35,6 +37,16 @@ _FALLBACK_ICON: Image.Image = Image.new("RGBA", _ICON_SIZE, color=(128, 128, 128
 _EXCLUDED_PROCESSES = {"textinputhost.exe"}
 
 _ICON_CACHE_MAX = 256
+
+
+class _SHFILEINFO(ctypes.Structure):
+    _fields_ = [
+        ("hIcon", ctypes.wintypes.HANDLE),
+        ("iIcon", ctypes.c_int),
+        ("dwAttributes", ctypes.c_ulong),
+        ("szDisplayName", ctypes.c_wchar * 260),
+        ("szTypeName", ctypes.c_wchar * 80),
+    ]
 
 DesktopAssigner = Callable[[list[int]], tuple[dict[int, int], dict[int, bool]]]
 
@@ -67,21 +79,9 @@ def _query_exe_path(handle: object) -> str:
 def _shell_imagelist_icon(exe_path: str) -> int:
     """Return an hIcon at 256×256 from the shell jumbo image list. Caller must DestroyIcon."""
     try:
-        import ctypes
-        import ctypes.wintypes
-
-        class _SHFILEINFO(ctypes.Structure):
-            _fields_ = [
-                ("hIcon", ctypes.wintypes.HANDLE),
-                ("iIcon", ctypes.c_int),
-                ("dwAttributes", ctypes.c_ulong),
-                ("szDisplayName", ctypes.c_wchar * 260),
-                ("szTypeName", ctypes.c_wchar * 80),
-            ]
-
         SHGFI_SYSICONINDEX = 0x4000
         shfi = _SHFILEINFO()
-        if not ctypes.windll.shell32.SHGetFileInfoW(
+        if not ctypes.windll.shell32.SHGetFileInfoW(  # type: ignore[attr-defined]
             exe_path, 0, ctypes.byref(shfi), ctypes.sizeof(shfi), SHGFI_SYSICONINDEX
         ):
             return 0
@@ -168,16 +168,6 @@ class IconExtractor:
 
             # 3. SHGetFileInfoW 32×32 — last resort
             if not icon_handle and exe_path:
-
-                class _SHFILEINFO(ctypes.Structure):
-                    _fields_ = [
-                        ("hIcon", ctypes.wintypes.HANDLE),
-                        ("iIcon", ctypes.c_int),
-                        ("dwAttributes", ctypes.c_ulong),
-                        ("szDisplayName", ctypes.c_wchar * 260),
-                        ("szTypeName", ctypes.c_wchar * 80),
-                    ]
-
                 SHGFI_ICON = 0x100
                 SHGFI_LARGEICON = 0x0
                 shfi = _SHFILEINFO()

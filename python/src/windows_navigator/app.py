@@ -125,12 +125,21 @@ def _start_flash_monitor(flashing: set[int]) -> None:
     threading.Thread(target=_run, daemon=True, name="flash-monitor").start()
 
 
-def _run_double_tap_ctrl(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
-    """Poll GetAsyncKeyState every 30 ms; trigger on two rising Ctrl edges within 300 ms.
+def _polling_double_tap_listener(
+    show_queue: queue.Queue[int],
+    stop_event: threading.Event,
+    *,
+    hotkey_id: int,
+    tap_vk_l: int,
+    tap_vk_r: int,
+    guard_vk_l: int | None = None,
+    guard_vk_r: int | None = None,
+) -> None:
+    """Poll GetAsyncKeyState every 30 ms; fire on two rising edges of tap_vk within 300 ms.
 
+    If guard_vk_l/guard_vk_r are given, both must be held at each rising edge.
     Injects a synthetic VK_F24 via SendInput and drains its WM_HOTKEY to acquire
-    the foreground-lock exemption before putting to show_queue. Falls back to a
-    direct put() when RegisterHotKey fails.
+    the foreground-lock exemption. Falls back to a direct put() if RegisterHotKey fails.
     """
     try:
         import ctypes
@@ -139,13 +148,10 @@ def _run_double_tap_ctrl(show_queue: queue.Queue[int], stop_event: threading.Eve
 
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
 
-        VK_LCONTROL = 0xA2
-        VK_RCONTROL = 0xA3
         VK_F24 = 0x87
         DOUBLE_TAP_MS = 300.0
         POLL_S = 0.030
         WM_HOTKEY = 0x0312
-        HOTKEY_ID = 100
         MOD_NOREPEAT = 0x4000
         INPUT_KEYBOARD = 1
         KEYEVENTF_KEYUP = 0x0002
@@ -154,7 +160,7 @@ def _run_double_tap_ctrl(show_queue: queue.Queue[int], stop_event: threading.Eve
         msg = wt.MSG()
         user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
 
-        use_hotkey = bool(user32.RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_F24))
+        use_hotkey = bool(user32.RegisterHotKey(None, hotkey_id, MOD_NOREPEAT, VK_F24))
 
         class _KEYBDINPUT(ctypes.Structure):
             _fields_ = [
@@ -191,23 +197,26 @@ def _run_double_tap_ctrl(show_queue: queue.Queue[int], stop_event: threading.Eve
                 deadline = time.monotonic() + 0.10
                 while time.monotonic() < deadline:
                     if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-                        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                        if msg.message == WM_HOTKEY and msg.wParam == hotkey_id:
                             show_queue.put(fg)
                             return
                     time.sleep(0.005)
             show_queue.put(fg)
 
         last_tap_ms = 0.0
-        ctrl_was_down = False
+        tap_was_down = False
 
         while not stop_event.is_set():
             time.sleep(POLL_S)
 
-            lc = user32.GetAsyncKeyState(VK_LCONTROL)
-            rc = user32.GetAsyncKeyState(VK_RCONTROL)
-            ctrl_down = bool((lc | rc) & 0x8000)
+            tap_down = bool(
+                (user32.GetAsyncKeyState(tap_vk_l) | user32.GetAsyncKeyState(tap_vk_r)) & 0x8000
+            )
+            guard_down = guard_vk_l is None or bool(
+                (user32.GetAsyncKeyState(guard_vk_l) | user32.GetAsyncKeyState(guard_vk_r)) & 0x8000
+            )
 
-            if ctrl_down and not ctrl_was_down:
+            if tap_down and not tap_was_down and guard_down:
                 now = time.monotonic() * 1000.0
                 if now - last_tap_ms <= DOUBLE_TAP_MS:
                     _trigger()
@@ -215,20 +224,27 @@ def _run_double_tap_ctrl(show_queue: queue.Queue[int], stop_event: threading.Eve
                 else:
                     last_tap_ms = now
 
-            ctrl_was_down = ctrl_down
+            tap_was_down = tap_down
 
         if use_hotkey:
-            user32.UnregisterHotKey(None, HOTKEY_ID)
+            user32.UnregisterHotKey(None, hotkey_id)
 
     except Exception:
         pass
 
 
-def _run_win_alt_space(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
-    """Register Win+Alt+Space via RegisterHotKey; put to show_queue on each WM_HOTKEY.
+def _run_registered_hotkey(
+    show_queue: queue.Queue[int],
+    stop_event: threading.Event,
+    *,
+    hotkey_id: int,
+    modifiers: int,
+    vk: int,
+) -> None:
+    """Register a hotkey via RegisterHotKey; put the foreground HWND to show_queue on each trigger.
 
     WM_HOTKEY delivery grants the foreground-lock exemption, so SetForegroundWindow
-    in the overlay succeeds without the SendInput trick used by the double-tap path.
+    in the overlay succeeds without the SendInput trick used by the polling path.
     """
     try:
         import ctypes
@@ -237,164 +253,23 @@ def _run_win_alt_space(show_queue: queue.Queue[int], stop_event: threading.Event
 
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
 
-        MOD_ALT = 0x0001
-        MOD_WIN = 0x0008
-        MOD_NOREPEAT = 0x4000
-        VK_SPACE = 0x20
         WM_HOTKEY = 0x0312
-        HOTKEY_ID = 200
 
         msg = wt.MSG()
         user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
 
-        if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_SPACE):
+        if not user32.RegisterHotKey(None, hotkey_id, modifiers, vk):
             return
 
         try:
             while not stop_event.is_set():
                 if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-                    if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                    if msg.message == WM_HOTKEY and msg.wParam == hotkey_id:
                         show_queue.put(user32.GetForegroundWindow())
                 else:
                     time.sleep(0.010)
         finally:
-            user32.UnregisterHotKey(None, HOTKEY_ID)
-
-    except Exception:
-        pass
-
-
-def _run_ctrl_double_tap_shift(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
-    """Poll GetAsyncKeyState every 30 ms; trigger on two rising Shift edges within 300 ms while Ctrl is held.
-
-    Uses the same VK_F24 SendInput trick as _run_double_tap_ctrl to acquire the foreground lock.
-    """
-    try:
-        import ctypes
-        import ctypes.wintypes as wt
-        import time
-
-        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-
-        VK_LCONTROL = 0xA2
-        VK_RCONTROL = 0xA3
-        VK_LSHIFT = 0xA0
-        VK_RSHIFT = 0xA1
-        VK_F24 = 0x87
-        DOUBLE_TAP_MS = 300.0
-        POLL_S = 0.030
-        WM_HOTKEY = 0x0312
-        HOTKEY_ID = 400
-        MOD_NOREPEAT = 0x4000
-        INPUT_KEYBOARD = 1
-        KEYEVENTF_KEYUP = 0x0002
-
-        msg = wt.MSG()
-        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
-
-        use_hotkey = bool(user32.RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_F24))
-
-        class _KEYBDINPUT(ctypes.Structure):
-            _fields_ = [
-                ("wVk", ctypes.c_ushort),
-                ("wScan", ctypes.c_ushort),
-                ("dwFlags", ctypes.c_uint),
-                ("time", ctypes.c_uint),
-                ("dwExtraInfo", ctypes.c_size_t),
-            ]
-
-        class _INPUT_PADDING(ctypes.Structure):
-            _fields_ = [("_pad", ctypes.c_byte * 28)]
-
-        class _INPUT_UNION(ctypes.Union):
-            _fields_ = [("ki", _KEYBDINPUT), ("_pad", _INPUT_PADDING)]
-
-        class _INPUT(ctypes.Structure):
-            _fields_ = [("type", ctypes.c_uint), ("_u", _INPUT_UNION)]
-
-        def _send_vk(vk: int, flags: int = 0) -> None:
-            inp = _INPUT()
-            inp.type = INPUT_KEYBOARD
-            inp._u.ki.wVk = vk
-            inp._u.ki.dwFlags = flags
-            user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
-
-        def _trigger() -> None:
-            fg = user32.GetForegroundWindow()
-            if use_hotkey:
-                _send_vk(VK_F24)
-                _send_vk(VK_F24, KEYEVENTF_KEYUP)
-                deadline = time.monotonic() + 0.10
-                while time.monotonic() < deadline:
-                    if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-                        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
-                            show_queue.put(fg)
-                            return
-                    time.sleep(0.005)
-            show_queue.put(fg)
-
-        last_tap_ms = 0.0
-        shift_was_down = False
-
-        while not stop_event.is_set():
-            time.sleep(POLL_S)
-
-            lc = user32.GetAsyncKeyState(VK_LCONTROL)
-            rc = user32.GetAsyncKeyState(VK_RCONTROL)
-            ctrl_down = bool((lc | rc) & 0x8000)
-
-            ls = user32.GetAsyncKeyState(VK_LSHIFT)
-            rs = user32.GetAsyncKeyState(VK_RSHIFT)
-            shift_down = bool((ls | rs) & 0x8000)
-
-            if ctrl_down and shift_down and not shift_was_down:
-                now = time.monotonic() * 1000.0
-                if now - last_tap_ms <= DOUBLE_TAP_MS:
-                    _trigger()
-                    last_tap_ms = 0.0
-                else:
-                    last_tap_ms = now
-
-            shift_was_down = shift_down
-
-        if use_hotkey:
-            user32.UnregisterHotKey(None, HOTKEY_ID)
-
-    except Exception:
-        pass
-
-
-def _run_ctrl_shift_space(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
-    """Register Ctrl+Shift+Space via RegisterHotKey; put to show_queue on each WM_HOTKEY."""
-    try:
-        import ctypes
-        import ctypes.wintypes as wt
-        import time
-
-        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-
-        MOD_CONTROL = 0x0002
-        MOD_SHIFT = 0x0004
-        MOD_NOREPEAT = 0x4000
-        VK_SPACE = 0x20
-        WM_HOTKEY = 0x0312
-        HOTKEY_ID = 300
-
-        msg = wt.MSG()
-        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
-
-        if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_SPACE):
-            return
-
-        try:
-            while not stop_event.is_set():
-                if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-                    if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
-                        show_queue.put(user32.GetForegroundWindow())
-                else:
-                    time.sleep(0.010)
-        finally:
-            user32.UnregisterHotKey(None, HOTKEY_ID)
+            user32.UnregisterHotKey(None, hotkey_id)
 
     except Exception:
         pass
@@ -406,16 +281,43 @@ def _start_hotkey_listener(
     stop_event: threading.Event,
 ) -> None:
     """Start the overlay hotkey listener thread for the given hotkey choice."""
+    VK_LCONTROL = 0xA2
+    VK_RCONTROL = 0xA3
+    VK_LSHIFT = 0xA0
+    VK_RSHIFT = 0xA1
+    MOD_ALT = 0x0001
+    MOD_CONTROL = 0x0002
+    MOD_SHIFT = 0x0004
+    MOD_WIN = 0x0008
+    MOD_NOREPEAT = 0x4000
+    VK_SPACE = 0x20
+
     if choice == HotkeyChoice.WIN_ALT_SPACE:
-        target = _run_win_alt_space
+        target = _run_registered_hotkey
+        kwargs: dict[str, int] = {
+            "hotkey_id": 200, "modifiers": MOD_WIN | MOD_ALT | MOD_NOREPEAT, "vk": VK_SPACE,
+        }
     elif choice == HotkeyChoice.CTRL_SHIFT_SPACE:
-        target = _run_ctrl_shift_space
+        target = _run_registered_hotkey
+        kwargs = {
+            "hotkey_id": 300, "modifiers": MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, "vk": VK_SPACE,
+        }
     elif choice == HotkeyChoice.CTRL_DOUBLE_TAP_SHIFT:
-        target = _run_ctrl_double_tap_shift
+        target = _polling_double_tap_listener
+        kwargs = {
+            "hotkey_id": 400,
+            "tap_vk_l": VK_LSHIFT,
+            "tap_vk_r": VK_RSHIFT,
+            "guard_vk_l": VK_LCONTROL,
+            "guard_vk_r": VK_RCONTROL,
+        }
     else:
-        target = _run_double_tap_ctrl
-    threading.Thread(target=target, args=(show_queue, stop_event), daemon=True,
-                     name="hotkey-listener").start()
+        target = _polling_double_tap_listener
+        kwargs = {"hotkey_id": 100, "tap_vk_l": VK_LCONTROL, "tap_vk_r": VK_RCONTROL}
+    threading.Thread(
+        target=target, args=(show_queue, stop_event), kwargs=kwargs,
+        daemon=True, name="hotkey-listener",
+    ).start()
 
 
 def _start_move_hotkey_listener(move_queue: queue.Queue[tuple[int, int]]) -> None:

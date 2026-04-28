@@ -281,44 +281,32 @@ class OverlayController:
     # Mutation helpers
     # ------------------------------------------------------------------
 
-    def set_desktop_nums(self, nums: set[int]) -> None:
-        """Update desktop badge filter and reset selection to the first visible row.
+    def _clear_app_filter_if_stale(self) -> None:
+        """Clear _app_filter when it no longer matches any window in the current filtered view."""
+        if self._app_filter is None:
+            return
+        names = {w.process_name for w in self.text_filtered_windows}
+        hwnd_to_window = {w.hwnd: w for w in self.all_windows}
+        names |= {
+            hwnd_to_window[h].process_name
+            for h in self._tab_query_matches
+            if h in hwnd_to_window
+        }
+        if self._app_filter not in names:
+            self._app_filter = None
 
-        If the active app filter no longer appears in the new filtered list,
-        it is automatically cleared.
-        """
+    def set_desktop_nums(self, nums: set[int]) -> None:
+        """Update desktop badge filter and reset selection to the first visible row."""
         self._desktop_nums = nums
         self._invalidate_text_filter_cache()
-        if self._app_filter is not None:
-            names = {w.process_name for w in self.text_filtered_windows}
-            hwnd_to_window = {w.hwnd: w for w in self.all_windows}
-            names |= {
-                hwnd_to_window[h].process_name
-                for h in self._tab_query_matches
-                if h in hwnd_to_window
-            }
-            if self._app_filter not in names:
-                self._app_filter = None
+        self._clear_app_filter_if_stale()
         self.selection_index = 0 if self.flat_list else -1
 
     def set_query(self, text: str) -> None:
-        """Update text filter query and reset selection to the first visible row.
-
-        If the active app filter no longer appears in the new text-filtered list,
-        it is automatically cleared.
-        """
+        """Update text filter query and reset selection to the first visible row."""
         self.query = text
         self._invalidate_text_filter_cache()
-        if self._app_filter is not None:
-            names = {w.process_name for w in self.text_filtered_windows}
-            hwnd_to_window = {w.hwnd: w for w in self.all_windows}
-            names |= {
-                hwnd_to_window[h].process_name
-                for h in self._tab_query_matches
-                if h in hwnd_to_window
-            }
-            if self._app_filter not in names:
-                self._app_filter = None
+        self._clear_app_filter_if_stale()
         self.selection_index = 0 if self.flat_list else -1
 
     def cycle_app_filter(self, direction: int) -> None:
