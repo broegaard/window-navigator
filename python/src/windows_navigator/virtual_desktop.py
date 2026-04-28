@@ -285,7 +285,7 @@ def move_window_to_adjacent_desktop(hwnd: int, direction: int) -> int:
 
             AppView(hwnd).move(VirtualDesktop(target_n))
         except Exception:
-            pass
+            return 0
         switch_to_desktop_number(target_n)
         return target_n
     except Exception:
