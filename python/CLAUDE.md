@@ -103,6 +103,7 @@ tests/
 - **pystray callbacks run on a non-Tk thread** — `TrayIcon._do_settings` must use `root.after(0, ...)` to marshal `open_settings_window` to the Tk main thread. Direct Tk calls from pystray's background thread corrupt Tk state silently.
 - **`_drain_show_queue` collapses multiple queued events into one call** — all items are drained from `show_queue` before `overlay.show()` fires once per poll cycle. Without this, two hotkey events within the same 50 ms window would call `toggle_all_expansions()` twice, cancelling each other out (no visible change).
 - **Pure Python controller** — all filter/selection logic in `controller.py` with no Tk import, fully testable on Linux.
+- **`text_filtered_windows` is a `cached_property`** — `filter_windows` was called up to 3× per `flat_list` access: once inside `_tab_query_matches` and twice more inside `filtered_windows`. Converting it to `functools.cached_property` reduces that to one call. `_invalidate_text_filter_cache()` (deletes the key from `__dict__`) is called at the start of `set_query`, `set_desktop_nums`, and `reset` — the only mutations that change `query`, `_desktop_nums`, or `all_windows`. Do **not** call it from `cycle_app_filter`, `clear_app_filter`, or `toggle_bell_filter`; those only affect `_app_filter`/`_bell_filter`, which are not inputs to `text_filtered_windows`.
 - **`_set_query_state` is the only correct way to change badge state** — any handler modifying `_desktop_prefix_nums` must call `_set_query_state(nums, text)`, not `_update_prefix_badges` + `_on_text_changed` separately. Only `_set_query_state` reaches `controller.set_desktop_nums`, keeping badges and controller in sync.
 - **Activation before hide** — `_activate_selected` calls the activate callback BEFORE `hide()`. `_closing = True` is set first so `_on_focus_out` doesn't schedule a spurious `hide()` during the focus handoff.
 - **Focus-out / focus-in symmetry** — `_on_focus_out` cancels any existing `_pending_hide` before scheduling a new one. Without this, the SW_SHOWNORMAL flash from `deiconify()` fires a FocusOut at T≈0 and a user click fires another; the orphaned callback fires later and closes a healthy overlay.
@@ -111,6 +112,7 @@ tests/
 - **Vtable access** — COM vtable is two levels of indirection: `object → vtable_ptr → fn_ptrs`. Cast the object pointer to `POINTER(c_void_p)`, read `[0]` to get the vtable pointer, cast that to `POINTER(c_void_p)`, then index by method number.
 - **Win32 `BOOL` vs `c_bool`** — Win32 `BOOL` is `c_int` (4 bytes), not `c_bool` (1 byte). Using `c_bool` for an output `BOOL*` parameter corrupts memory.
 - **Icon extraction fallback chain** — `SHGetImageList(SHIL_JUMBO)` is tried first for every window: it returns 256×256 icons from the shell cache for all apps, including Electron and UWP apps (Teams, Edge, Slack) that return a low-quality 32×32 handle from `WM_GETICON`. The icon is rendered via `DrawIconEx` then downscaled to 32×32 with Lanczos. Fallbacks in order: `WM_GETICON(ICON_BIG)` → `WM_GETICON(ICON_SMALL)` → `GetClassLong(GCL_HICON)` → `SHGetFileInfoW` on the exe path. Icons from `SHGetFileInfoW` are caller-owned and need `DestroyIcon`.
+- **Icon cache on `RealWindowProvider`** — `_icon_cache: dict[str, Image.Image]` keyed by `exe_path.lower()` avoids repeating the expensive `SHGetImageList` + `DrawIconEx` + Lanczos resize on every hotkey press. Only caches when `exe_path` is non-empty; empty-path windows fall through to per-hwnd queries that can't be shared across windows. The cache is never explicitly invalidated — icons don't change while an app is running.
 - **`QueryFullProcessImageNameW` for exe path** — do NOT use `win32api.GetModuleFileNameEx` (doesn't exist in pywin32) or `GetModuleFileNameEx` (requires `PROCESS_VM_READ`). Either silently returns `""`, collapsing every window to `process_name=""`.
 - **`pyvda` required for move** — `IVirtualDesktopManager::MoveWindowToDesktop` silently does nothing for cross-process windows on Windows 11 22H2+. `pyvda` uses `IVirtualDesktopManagerInternal`.
 - **Flash monitor WPARAM overflow** — `ctypes.wintypes.WPARAM` is `c_long` (32-bit signed) even on 64-bit. `HSHELL_FLASH = 0x8006` overflows. Use `c_size_t`/`c_ssize_t` for w/l parameters in the `WNDPROC`.
@@ -156,9 +158,10 @@ with patch.dict("sys.modules", {"winreg": mock_winreg}):
 | File | What it covers |
 |------|----------------|
 | `test_filter.py` | `filter_windows` — text match, multi-token, `desktop_nums` OR semantics |
-| `test_keyboard.py` | `OverlayController` — navigation, query, desktop badges, app filter, tab search, toggle expansions, deferred `_want_all_expanded`, collapse-clears-all, flag non-corruption for single-tab filter |
-| `test_provider.py` | `IconExtractor.extract` fallback chain |
+| `test_keyboard.py` | `OverlayController` — navigation, query, desktop badges, app filter, tab search, toggle expansions, deferred `_want_all_expanded`, collapse-clears-all, flag non-corruption for single-tab filter, `text_filtered_windows` cache (single call per `flat_list`, invalidation by mutation, reuse across reads) |
+| `test_provider.py` | `IconExtractor.extract` fallback chain; `RealWindowProvider` icon cache (same-exe hit, cross-exe miss, case-insensitive key, cache contents after enumeration, persistence across `get_windows` calls) |
 | `test_virtual_desktop.py` | `assign_desktop_numbers` (registry order, ghost GUID → `-1`), `get_current_desktop_number` |
+| `test_models.py` | `WindowInfo` and `TabInfo` dataclass construction and defaults |
 | `test_tray.py` | `_make_tray_icon` pixel-level color checks |
 | `test_theme.py` | `desktop_badge_color` format and cycling |
 | `test_overlay.py` | `_desktop_badge_color` overlay helper (requires tkinter stub) |
