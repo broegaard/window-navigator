@@ -695,6 +695,16 @@ def test_set_query_keeps_app_filter_when_app_matches_via_tab():
     assert ctrl._app_filter == "chrome.exe"
 
 
+def test_tab_query_matches_ignores_hwnd_absent_from_all_windows():
+    """If tabs are stored for an hwnd that is not in all_windows, it is silently skipped."""
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl._tabs[99] = _make_tabs(99, "Secret Tab")  # phantom hwnd — not in all_windows
+    ctrl._expanded.add(99)
+    ctrl.set_query("secret")
+    assert ctrl.filtered_windows == []
+    assert ctrl.flat_list == []
+
+
 # ---------------------------------------------------------------------------
 # set_tabs / tab_count / is_expanded
 # ---------------------------------------------------------------------------
