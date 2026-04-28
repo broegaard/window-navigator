@@ -20,6 +20,7 @@ Double-tap **Ctrl** again while the overlay is open to expand / collapse all bro
 | Input | Effect |
 |-------|--------|
 | Type text | Filter by window title or app name (all tokens must match) |
+| `Ctrl+0` | Toggle the current desktop's filter badge on/off |
 | `Ctrl+1`–`9` | Toggle desktop-number filter badge on/off |
 | `Ctrl++` / `Ctrl+-` | Increment/decrement the active desktop badge |
 | `Tab` / `Shift+Tab` | Cycle app filter (icon strip) |

@@ -282,6 +282,7 @@ class NavigatorOverlay:
         self._entry.bind("<Control-BackSpace>", self._on_ctrl_backspace)
         for _d in range(1, 10):
             self._entry.bind(f"<Control-Key-{_d}>", self._on_ctrl_digit)
+        self._entry.bind("<Control-Key-0>", self._on_ctrl_zero)
         self._entry.bind("<KeyPress>", self._on_keypress_jump, add=True)
         self._entry.bind("<Control-equal>", self._on_ctrl_plus)
         self._entry.bind("<Control-plus>", self._on_ctrl_plus)
@@ -694,6 +695,18 @@ class NavigatorOverlay:
         else:
             nums.append(num)
         self._set_query_state(nums, self._entry.get() if self._entry is not None else "")
+        return "break"
+
+    def _on_ctrl_zero(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        """Toggle the current desktop's prefix badge (Ctrl+0)."""
+        num = self._initial_desktop
+        if num:
+            nums = list(self._desktop_prefix_nums)
+            if num in nums:
+                nums.remove(num)
+            else:
+                nums.append(num)
+            self._set_query_state(nums, self._entry.get() if self._entry is not None else "")
         return "break"
 
     def _on_keypress_jump(self, _event: tk.Event) -> str | None:  # type: ignore[type-arg]
