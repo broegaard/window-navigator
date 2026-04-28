@@ -263,6 +263,7 @@ class RealWindowProvider:
         self._assign_desktops = assign_desktops
         self._flashing: set[int] = flashing if flashing is not None else set()
         self._extra_filters: list[WindowFilter] = list(extra_filters) if extra_filters else []
+        self._icon_cache: dict[str, Image.Image] = {}
 
     def get_windows(self) -> list[WindowInfo]:
         import win32con
@@ -297,7 +298,14 @@ class RealWindowProvider:
             desktop_number = desktop_numbers.get(hwnd, 0)
             if desktop_number == -1:
                 continue  # ghost window on a desktop that no longer exists
-            icon = IconExtractor.extract(hwnd, exe_path)
+            if exe_path:
+                cache_key = exe_path.lower()
+                icon = self._icon_cache.get(cache_key)
+                if icon is None:
+                    icon = IconExtractor.extract(hwnd, exe_path)
+                    self._icon_cache[cache_key] = icon
+            else:
+                icon = IconExtractor.extract(hwnd, exe_path)
             is_current = is_current_map.get(hwnd, True)
             results.append(
                 WindowInfo(

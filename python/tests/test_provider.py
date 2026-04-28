@@ -1,5 +1,7 @@
 """Tests for provider icon extraction fallback."""
 
+from unittest.mock import MagicMock, patch
+
 from windows_navigator.provider import (
     _EXCLUDED_PROCESSES,
     _FALLBACK_ICON,
@@ -116,3 +118,153 @@ def test_provider_default_flashing_is_empty_set():
     provider = RealWindowProvider(assign_desktops=lambda h: ({}, {}))
     assert provider._flashing == set()
     assert isinstance(provider._flashing, set)
+
+
+def test_provider_icon_cache_starts_empty():
+    provider = RealWindowProvider(assign_desktops=lambda h: ({}, {}))
+    assert provider._icon_cache == {}
+
+
+# ---------------------------------------------------------------------------
+# Icon cache — get_windows() caching behaviour
+# ---------------------------------------------------------------------------
+
+
+def _make_provider_with_windows(hwnds_titles_exes):
+    """Return a RealWindowProvider wired to enumerate the given (hwnd, title, exe) triples."""
+    import sys
+    from unittest.mock import MagicMock
+
+    win32gui = MagicMock()
+    win32con = MagicMock()
+    win32process = MagicMock()
+    win32con.GWL_EXSTYLE = 0
+    win32con.WS_EX_TOOLWINDOW = 0x80
+
+    hwnds = [h for h, _, _ in hwnds_titles_exes]
+    title_map = {h: t for h, t, _ in hwnds_titles_exes}
+    exe_map = {h: e for h, _, e in hwnds_titles_exes}
+
+    def enum_windows_side_effect(cb, _):
+        for hwnd in hwnds:
+            cb(hwnd, None)
+
+    win32gui.EnumWindows.side_effect = enum_windows_side_effect
+    win32gui.IsWindowVisible.return_value = True
+    win32gui.GetWindowLong.return_value = 0
+    win32gui.GetWindowText.side_effect = lambda h: title_map.get(h, "")
+
+    def get_process_info_side_effect(hwnd, _wp):
+        exe = exe_map.get(hwnd, "")
+        return (exe.split("\\")[-1] if exe else ""), exe
+
+    provider = RealWindowProvider(assign_desktops=lambda h: ({hw: 1 for hw in h}, {hw: True for hw in h}))
+
+    with patch.dict(sys.modules, {
+        "win32gui": win32gui,
+        "win32con": win32con,
+        "win32process": win32process,
+    }):
+        with patch("windows_navigator.provider.RealWindowProvider._get_process_info",
+                   side_effect=get_process_info_side_effect):
+            with patch("windows_navigator.provider.IconExtractor.extract") as mock_extract:
+                mock_extract.return_value = _FALLBACK_ICON.copy()
+                provider.get_windows()
+                return provider, mock_extract
+
+
+def test_icon_cache_hit_on_same_exe():
+    """Two windows sharing the same exe path must only call IconExtractor.extract once."""
+    exe = "C:\\Windows\\chrome.exe"
+    triples = [(1, "Window A", exe), (2, "Window B", exe)]
+    _, mock_extract = _make_provider_with_windows(triples)
+    assert mock_extract.call_count == 1
+
+
+def test_icon_cache_miss_on_different_exe():
+    """Two windows with different exe paths each get a fresh extract call."""
+    triples = [
+        (1, "Window A", "C:\\Windows\\chrome.exe"),
+        (2, "Window B", "C:\\Windows\\notepad.exe"),
+    ]
+    _, mock_extract = _make_provider_with_windows(triples)
+    assert mock_extract.call_count == 2
+
+
+def test_icon_cache_key_is_case_insensitive():
+    """exe paths differing only in case must share one cache entry."""
+    triples = [
+        (1, "Window A", "C:\\Windows\\Chrome.exe"),
+        (2, "Window B", "C:\\Windows\\chrome.exe"),
+    ]
+    _, mock_extract = _make_provider_with_windows(triples)
+    assert mock_extract.call_count == 1
+
+
+def test_icon_cache_populated_after_get_windows():
+    """After get_windows(), _icon_cache holds one entry per unique exe path."""
+    import sys
+
+    win32gui = MagicMock()
+    win32con = MagicMock()
+    win32process = MagicMock()
+    win32con.GWL_EXSTYLE = 0
+    win32con.WS_EX_TOOLWINDOW = 0x80
+
+    triples = [(1, "A", "C:\\a.exe"), (2, "B", "C:\\b.exe"), (3, "C", "C:\\a.exe")]
+    hwnds = [h for h, _, _ in triples]
+    title_map = {h: t for h, t, _ in triples}
+    exe_map = {h: e for h, _, e in triples}
+
+    win32gui.EnumWindows.side_effect = lambda cb, _: [cb(h, None) for h in hwnds]
+    win32gui.IsWindowVisible.return_value = True
+    win32gui.GetWindowLong.return_value = 0
+    win32gui.GetWindowText.side_effect = lambda h: title_map.get(h, "")
+
+    provider = RealWindowProvider(
+        assign_desktops=lambda h: ({hw: 1 for hw in h}, {hw: True for hw in h})
+    )
+
+    def _fake_get_process_info(hwnd, _wp):
+        exe = exe_map.get(hwnd, "")
+        return exe.split("\\")[-1], exe
+
+    with patch.dict(sys.modules, {"win32gui": win32gui, "win32con": win32con, "win32process": win32process}):
+        with patch("windows_navigator.provider.RealWindowProvider._get_process_info",
+                   side_effect=_fake_get_process_info):
+            with patch("windows_navigator.provider.IconExtractor.extract",
+                       return_value=_FALLBACK_ICON.copy()):
+                provider.get_windows()
+
+    assert set(provider._icon_cache.keys()) == {"c:\\a.exe", "c:\\b.exe"}
+
+
+def test_icon_cache_persists_across_get_windows_calls():
+    """On a second get_windows() call, cached icons are reused without re-extracting."""
+    import sys
+
+    win32gui = MagicMock()
+    win32con = MagicMock()
+    win32process = MagicMock()
+    win32con.GWL_EXSTYLE = 0
+    win32con.WS_EX_TOOLWINDOW = 0x80
+
+    exe = "C:\\app.exe"
+    win32gui.EnumWindows.side_effect = lambda cb, _: cb(1, None)
+    win32gui.IsWindowVisible.return_value = True
+    win32gui.GetWindowLong.return_value = 0
+    win32gui.GetWindowText.return_value = "App"
+
+    provider = RealWindowProvider(
+        assign_desktops=lambda h: ({hw: 1 for hw in h}, {hw: True for hw in h})
+    )
+
+    with patch.dict(sys.modules, {"win32gui": win32gui, "win32con": win32con, "win32process": win32process}):
+        with patch("windows_navigator.provider.RealWindowProvider._get_process_info",
+                   return_value=("app.exe", exe)):
+            with patch("windows_navigator.provider.IconExtractor.extract",
+                       return_value=_FALLBACK_ICON.copy()) as mock_extract:
+                provider.get_windows()
+                provider.get_windows()
+
+    assert mock_extract.call_count == 1
