@@ -983,6 +983,16 @@ def test_toggle_all_expansions_collapse_clears_want_all_expanded():
     assert ctrl._want_all_expanded is False
 
 
+def test_toggle_all_expansions_collapse_clamps_selection_when_on_tab_row():
+    """Collapsing while the cursor sits on a tab row clamps selection_index (regression guard)."""
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl.set_tabs(1, _make_tabs(1, "Tab A", "Tab B", "Tab C"))
+    ctrl.toggle_all_expansions()   # expand: flat_list = [window, tab0, tab1, tab2]
+    ctrl.selection_index = 3       # cursor on last tab row
+    ctrl.toggle_all_expansions()   # collapse: flat_list = [window] — must clamp
+    assert ctrl.selection_index == 0
+
+
 def test_reset_clears_want_all_expanded():
     ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
     ctrl._want_all_expanded = True
