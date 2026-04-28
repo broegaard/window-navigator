@@ -280,6 +280,7 @@ class NavigatorOverlay:
         self._entry_inner.pack_propagate(False)
         self._entry.bind("<BackSpace>", self._on_backspace)
         self._entry.bind("<Control-BackSpace>", self._on_ctrl_backspace)
+        self._entry.bind("<Control-w>", self._on_ctrl_backspace)
         for _d in range(1, 10):
             self._entry.bind(f"<Control-Key-{_d}>", self._on_ctrl_digit)
         self._entry.bind("<Control-Key-0>", self._on_ctrl_zero)
