@@ -1,5 +1,7 @@
 """Tests for OverlayController — keyboard routing and filter state."""
 
+from unittest.mock import patch
+
 from windows_navigator.controller import OverlayController
 from windows_navigator.models import TabInfo, WindowInfo
 
@@ -1156,3 +1158,51 @@ def test_toggle_bell_filter_resets_selection_to_first_match():
     ctrl.selection_index = 2
     ctrl.toggle_bell_filter()
     assert ctrl.selection_index == 0
+
+
+# ---------------------------------------------------------------------------
+# text_filtered_windows caching
+# ---------------------------------------------------------------------------
+
+
+def test_text_filtered_windows_cached_within_flat_list():
+    """filter_windows() must be called at most once per flat_list access, not once per
+    internal property that reads text_filtered_windows."""
+    ctrl = OverlayController(_windows("Alpha", "Beta", "Gamma"))
+    with patch("windows_navigator.controller.filter_windows", wraps=__import__(
+        "windows_navigator.filter", fromlist=["filter_windows"]
+    ).filter_windows) as mock_fw:
+        _ = ctrl.flat_list
+        assert mock_fw.call_count == 1
+
+
+def test_text_filtered_windows_cache_invalidated_by_set_query():
+    ctrl = OverlayController(_windows("Alpha", "Beta"))
+    _ = ctrl.text_filtered_windows  # prime cache
+    ctrl.set_query("Alpha")
+    assert len(ctrl.text_filtered_windows) == 1
+
+
+def test_text_filtered_windows_cache_invalidated_by_set_desktop_nums():
+    ctrl = OverlayController([
+        WindowInfo(hwnd=1, title="A", process_name="a.exe", desktop_number=1),
+        WindowInfo(hwnd=2, title="B", process_name="b.exe", desktop_number=2),
+    ])
+    _ = ctrl.text_filtered_windows  # prime cache
+    ctrl.set_desktop_nums({1})
+    assert len(ctrl.text_filtered_windows) == 1
+
+
+def test_text_filtered_windows_cache_invalidated_by_reset():
+    ctrl = OverlayController(_windows("Alpha", "Beta"))
+    _ = ctrl.text_filtered_windows  # prime cache
+    ctrl.reset(_windows("X"))
+    assert len(ctrl.text_filtered_windows) == 1
+
+
+def test_text_filtered_windows_cache_reused_across_multiple_accesses():
+    """Two reads without any intervening mutation return the same list object."""
+    ctrl = OverlayController(_windows("A", "B"))
+    first = ctrl.text_filtered_windows
+    second = ctrl.text_filtered_windows
+    assert first is second

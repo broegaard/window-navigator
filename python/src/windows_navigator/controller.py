@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from typing import Protocol
 
 from windows_navigator.filter import filter_windows
@@ -97,10 +98,13 @@ class OverlayController:
     def desktop_nums(self) -> set[int]:
         return self._desktop_nums
 
-    @property
+    @functools.cached_property
     def text_filtered_windows(self) -> list[WindowInfo]:
         """Windows matching desktop badge filter + text query only (no app filter)."""
         return filter_windows(self.all_windows, self.query, self._desktop_nums or None)
+
+    def _invalidate_text_filter_cache(self) -> None:
+        self.__dict__.pop("text_filtered_windows", None)
 
     @property
     def _tab_query_matches(self) -> dict[int, list[TabInfo]]:
@@ -272,6 +276,7 @@ class OverlayController:
         it is automatically cleared.
         """
         self._desktop_nums = nums
+        self._invalidate_text_filter_cache()
         if self._app_filter is not None:
             names = {w.process_name for w in self.text_filtered_windows}
             hwnd_to_window = {w.hwnd: w for w in self.all_windows}
@@ -291,6 +296,7 @@ class OverlayController:
         it is automatically cleared.
         """
         self.query = text
+        self._invalidate_text_filter_cache()
         if self._app_filter is not None:
             names = {w.process_name for w in self.text_filtered_windows}
             hwnd_to_window = {w.hwnd: w for w in self.all_windows}
@@ -373,6 +379,7 @@ class OverlayController:
         self._expanded = set()
         self._want_all_expanded = False
         self.selection_index = 0 if windows else -1
+        self._invalidate_text_filter_cache()
 
     # ------------------------------------------------------------------
     # Read helpers
