@@ -234,3 +234,39 @@ def test_select_tab_happy_path_calls_select():
         select_tab(TabInfo(name="Tab A", hwnd=42, index=0))
 
     mock_pattern.QueryInterface.return_value.Select.assert_called_once()
+
+
+def test_fetch_tabs_skips_element_when_name_extraction_raises():
+    """If GetCurrentPropertyValue(_UIA_NamePropertyId) raises on one element,
+    that element is silently skipped and remaining elements are still collected."""
+    tab_ok = MagicMock()
+    tab_ok.GetCurrentPropertyValue.side_effect = lambda prop: (
+        _UIA_TabItemControlTypeId if prop == 30003 else "Good Tab"
+    )
+    tab_bad = MagicMock()
+
+    def _bad_side_effect(prop):
+        if prop == 30003:
+            return _UIA_TabItemControlTypeId
+        raise OSError("COM error")
+
+    tab_bad.GetCurrentPropertyValue.side_effect = _bad_side_effect
+
+    col = MagicMock()
+    col.Length = 2
+    col.GetElement.side_effect = [tab_ok, tab_bad]
+
+    root = MagicMock()
+    root.GetCurrentPropertyValue.return_value = 0
+    root.FindAll.return_value = col
+
+    mock_uia = MagicMock()
+    mock_uia.ElementFromHandle.return_value = root
+
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia):
+        result = fetch_tabs(hwnd=99)
+
+    assert len(result) == 1
+    assert result[0].name == "Good Tab"
+    assert result[0].hwnd == 99
+    assert result[0].index == 0

@@ -629,3 +629,181 @@ def test_assign_desktop_numbers_outer_exception_returns_empty_dicts():
         nums, cur = assign_desktop_numbers([1, 2, 3])
     assert nums == {}
     assert cur == {}
+
+
+# ---------------------------------------------------------------------------
+# _get_manager — module-level function
+# ---------------------------------------------------------------------------
+
+
+def test_get_manager_returns_none_on_linux():
+    """_get_manager() delegates to the module-level cache; returns None when COM unavailable."""
+    from windows_navigator.virtual_desktop import _get_manager
+
+    result = _get_manager()
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _ManagerCache — comtypes success path
+# ---------------------------------------------------------------------------
+
+
+def test_manager_cache_returns_manager_when_comtypes_available():
+    """When comtypes can be imported and CoCreateInstance succeeds, the result is cached."""
+    mock_manager = MagicMock()
+    mock_comtypes = MagicMock()
+    mock_comtypes.CoCreateInstance.return_value = mock_manager
+    mock_comtypes_gen = MagicMock()
+    mock_vdm = MagicMock()
+
+    with patch.dict("sys.modules", {
+        "comtypes": mock_comtypes,
+        "comtypes.gen": mock_comtypes_gen,
+        "comtypes.gen.IVirtualDesktopManager": mock_vdm,
+    }):
+        cache = _ManagerCache()
+        result = cache.get()
+
+    assert result is mock_manager
+    assert cache._attempted is True
+
+
+# ---------------------------------------------------------------------------
+# _try_raw_ctypes — body coverage
+# ---------------------------------------------------------------------------
+
+
+def test_try_raw_ctypes_returns_none_on_nonzero_hr():
+    """When CoCreateInstance returns a non-zero HRESULT, the function returns None."""
+    import ctypes
+    from unittest.mock import patch
+
+    from windows_navigator.virtual_desktop import _try_raw_ctypes
+
+    mock_windll = MagicMock()
+    mock_windll.ole32.CoCreateInstance.return_value = 0x80004005  # E_FAIL
+    with patch.object(ctypes, "windll", mock_windll, create=True):
+        result = _try_raw_ctypes()
+
+    assert result is None
+
+
+def test_try_raw_ctypes_returns_raw_manager_on_success():
+    """When CoCreateInstance succeeds and ptr is non-null, a _RawVDManager is returned."""
+    import ctypes
+    from unittest.mock import patch
+
+    from windows_navigator.virtual_desktop import _RawVDManager, _try_raw_ctypes
+
+    class _FakePtr:
+        value = 0xDEAD
+
+    fake_ptr = _FakePtr()
+    mock_windll = MagicMock()
+    mock_windll.ole32.CoCreateInstance.return_value = 0
+
+    with patch.object(ctypes, "windll", mock_windll, create=True), \
+            patch.object(ctypes, "c_void_p", return_value=fake_ptr), \
+            patch.object(ctypes, "byref", side_effect=lambda x: x):
+        result = _try_raw_ctypes()
+
+    assert isinstance(result, _RawVDManager)
+    assert result._ptr is fake_ptr
+
+
+def test_try_raw_ctypes_returns_none_on_exception():
+    """Any unexpected exception in the body is caught and returns None."""
+    import ctypes
+    from unittest.mock import patch
+
+    from windows_navigator.virtual_desktop import _try_raw_ctypes
+
+    mock_windll = MagicMock()
+    mock_windll.ole32.CoCreateInstance.side_effect = RuntimeError("unexpected")
+    with patch.object(ctypes, "windll", mock_windll, create=True):
+        result = _try_raw_ctypes()
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _RawVDManager — constructor and public methods
+# ---------------------------------------------------------------------------
+
+
+def test_raw_vdmanager_constructor_stores_ptr():
+    from windows_navigator.virtual_desktop import _RawVDManager
+
+    ptr = MagicMock()
+    mgr = _RawVDManager(ptr)
+    assert mgr._ptr is ptr
+
+
+def test_raw_vdmanager_is_on_current_returns_true_on_nonzero_hr():
+    import ctypes
+
+    from windows_navigator.virtual_desktop import _RawVDManager
+
+    mgr = _RawVDManager(MagicMock())
+    with patch.object(mgr, "_vtable_call", return_value=1), \
+            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+        assert mgr.IsWindowOnCurrentVirtualDesktop(42) is True
+
+
+def test_raw_vdmanager_is_on_current_returns_result_value_on_zero_hr():
+    """hr == 0 → return bool(result.value); result initialised to c_int(0) → False."""
+    import ctypes
+
+    from windows_navigator.virtual_desktop import _RawVDManager
+
+    mgr = _RawVDManager(MagicMock())
+    with patch.object(mgr, "_vtable_call", return_value=0), \
+            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+        assert mgr.IsWindowOnCurrentVirtualDesktop(42) is False
+
+
+def test_raw_vdmanager_get_desktop_id_returns_none_on_nonzero_hr():
+    import ctypes
+
+    from windows_navigator.virtual_desktop import _RawVDManager
+
+    mgr = _RawVDManager(MagicMock())
+    with patch.object(mgr, "_vtable_call", return_value=1), \
+            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+        assert mgr.GetWindowDesktopId(42) is None
+
+
+def test_raw_vdmanager_get_desktop_id_returns_guid_string_on_zero_hr():
+    """hr == 0 → _guid_to_str of a default-initialised _GUID (all zeros)."""
+    import ctypes
+
+    from windows_navigator.virtual_desktop import _RawVDManager
+
+    mgr = _RawVDManager(MagicMock())
+    with patch.object(mgr, "_vtable_call", return_value=0), \
+            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+        result = mgr.GetWindowDesktopId(42)
+    assert result == "00000000-0000-0000-0000-000000000000"
+
+
+def test_raw_vdmanager_move_to_desktop_returns_true_on_zero_hr():
+    import ctypes
+
+    from windows_navigator.virtual_desktop import _RawVDManager
+
+    mgr = _RawVDManager(MagicMock())
+    with patch.object(mgr, "_vtable_call", return_value=0), \
+            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+        assert mgr.MoveWindowToDesktop(42, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is True
+
+
+def test_raw_vdmanager_move_to_desktop_returns_false_on_nonzero_hr():
+    import ctypes
+
+    from windows_navigator.virtual_desktop import _RawVDManager
+
+    mgr = _RawVDManager(MagicMock())
+    with patch.object(mgr, "_vtable_call", return_value=1), \
+            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+        assert mgr.MoveWindowToDesktop(42, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is False
