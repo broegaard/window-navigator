@@ -173,8 +173,7 @@ class NavigatorOverlay:
         self._prefix_badge_widgets: list[tk.Label] = []
         self._desktop_prefix_nums: list[int] = []
         self._initial_desktop: int = 0
-        self._photo_images: list = []  # strong refs to prevent GC of PhotoImage objects
-        self._strip_photo_images: list = []  # same, for strip icons
+        self._photo_image_cache: dict[int, object] = {}  # id(PIL image) → PhotoImage
         self._pending_hide: str | None = None  # after() ID for a scheduled hide()
         self._bell_badge_widget: tk.Label | None = None
         self._count_label: tk.Label | None = None
@@ -213,6 +212,7 @@ class NavigatorOverlay:
         self._controller = self._controller_factory(windows)
         self._initial_desktop = initial_desktop
         self._fetch_ms = fetch_ms
+        self._photo_image_cache.clear()
         threading.Thread(target=self._fetch_tabs_bg, args=(list(windows),), daemon=True).start()
         self._build_ui()
 
@@ -238,8 +238,7 @@ class NavigatorOverlay:
                 _u.SetCursorPos(_pt.x, _pt.y)
             except Exception:
                 pass
-            self._photo_images.clear()
-            self._strip_photo_images.clear()
+            self._photo_image_cache.clear()
             self._canvas = None
             self._strip_canvas = None
             self._entry = None
@@ -400,7 +399,6 @@ class NavigatorOverlay:
         if self._controller is None or self._canvas is None:
             return
         c = _colors()
-        self._photo_images.clear()
         self._canvas.delete("all")
 
         flat = self._controller.flat_list
@@ -457,8 +455,11 @@ class NavigatorOverlay:
             # Icon
             if _HAS_PIL and w.icon is not None:
                 try:
-                    photo = ImageTk.PhotoImage(w.icon)
-                    self._photo_images.append(photo)
+                    icon_id = id(w.icon)
+                    photo = self._photo_image_cache.get(icon_id)
+                    if photo is None:
+                        photo = ImageTk.PhotoImage(w.icon)
+                        self._photo_image_cache[icon_id] = photo
                     self._canvas.create_image(
                         _ICON_PAD_X, y0 + _ICON_PAD_Y, anchor="nw", image=photo
                     )
@@ -532,7 +533,6 @@ class NavigatorOverlay:
         if self._strip_canvas is None or self._controller is None:
             return
         c = _colors()
-        self._strip_photo_images.clear()
         self._strip_canvas.delete("all")
 
         icons = self._controller.app_icons
@@ -550,8 +550,11 @@ class NavigatorOverlay:
             icon_drawn = False
             if _HAS_PIL and w.icon is not None:
                 try:
-                    photo = ImageTk.PhotoImage(w.icon)
-                    self._strip_photo_images.append(photo)
+                    icon_id = id(w.icon)
+                    photo = self._photo_image_cache.get(icon_id)
+                    if photo is None:
+                        photo = ImageTk.PhotoImage(w.icon)
+                        self._photo_image_cache[icon_id] = photo
                     self._strip_canvas.create_image(
                         x0 + _STRIP_PAD_X, _STRIP_PAD_Y, anchor="nw", image=photo
                     )
