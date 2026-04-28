@@ -1326,3 +1326,43 @@ def test_tab_query_matches_cache_invalidated_by_set_tabs():
     second = ctrl._tab_query_matches  # now has a match
     assert first is not second
     assert 1 in second
+
+
+# ---------------------------------------------------------------------------
+# Property getters
+# ---------------------------------------------------------------------------
+
+
+def test_desktop_nums_property_returns_current_set():
+    ctrl = OverlayController(_windows("A"))
+    ctrl.set_desktop_nums({3, 5})
+    assert ctrl.desktop_nums == {3, 5}
+
+
+def test_app_filter_property_returns_current_filter():
+    ctrl = OverlayController(_mixed_windows())
+    ctrl.cycle_app_filter(1)
+    assert ctrl.app_filter == "notepad.exe"
+
+
+def test_app_filter_property_is_none_initially():
+    ctrl = OverlayController(_windows("A"))
+    assert ctrl.app_filter is None
+
+
+# ---------------------------------------------------------------------------
+# toggle_all_expansions — empty flat_list after collapse
+# ---------------------------------------------------------------------------
+
+
+def test_toggle_all_expansions_collapse_sets_selection_minus_one_when_flat_list_empty():
+    """When all visible windows are visible only through tab-query search, collapsing clears
+    _expanded so _tab_query_matches returns {} and flat_list becomes empty → selection = -1."""
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl.set_tabs(1, _make_tabs(1, "Gmail Inbox", "GitHub Issues"))
+    ctrl._expanded.add(1)
+    ctrl.set_query("gmail")   # "gmail" matches tab name but NOT window title "Chrome"
+    ctrl.selection_index = 1  # cursor on the tab row
+    # Collapse: _expanded.clear() → _tab_query_matches returns {} → filtered_windows empty
+    ctrl.toggle_all_expansions()
+    assert ctrl.selection_index == -1

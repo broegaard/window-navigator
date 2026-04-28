@@ -612,3 +612,20 @@ def test_move_to_adjacent_appview_exception_returns_zero():
          patch.dict("sys.modules", {"pyvda": mock_pyvda}):
         result = move_window_to_adjacent_desktop(99, +1)
     assert result == 0
+
+
+def test_move_to_adjacent_outer_exception_returns_zero():
+    """If _get_registry_desktop_order raises, the outer except returns 0."""
+    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
+               side_effect=RuntimeError("unexpected")):
+        result = move_window_to_adjacent_desktop(99, +1)
+    assert result == 0
+
+
+def test_assign_desktop_numbers_outer_exception_returns_empty_dicts():
+    """If _get_manager raises (not just returns None), assign_desktop_numbers returns {}, {}."""
+    with patch("windows_navigator.virtual_desktop._get_manager",
+               side_effect=RuntimeError("COM exploded")):
+        nums, cur = assign_desktop_numbers([1, 2, 3])
+    assert nums == {}
+    assert cur == {}

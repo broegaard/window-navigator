@@ -1,6 +1,6 @@
 """Tests for tabs.py — UIA tab discovery helpers."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from windows_navigator.models import TabInfo
 from windows_navigator.tabs import (
@@ -175,3 +175,62 @@ def test_collect_tab_items_does_not_descend_into_document():
     result = _collect_tab_items(root, MagicMock())
     assert result == []
     inner_tab.GetCurrentPropertyValue.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# fetch_tabs / select_tab — happy path with _create_uia patched
+# ---------------------------------------------------------------------------
+
+
+def _make_uia_tree(tab_names: list[str]):
+    """Return (mock_uia, tab_elements) for a tree whose root has named TabItem children."""
+    tab_elements = []
+    for name in tab_names:
+        el = MagicMock()
+        el.GetCurrentPropertyValue.side_effect = lambda prop, _name=name: (
+            _UIA_TabItemControlTypeId if prop == 30003 else _name
+        )
+        tab_elements.append(el)
+
+    col = MagicMock()
+    col.Length = len(tab_elements)
+    col.GetElement.side_effect = tab_elements
+
+    root = MagicMock()
+    root.GetCurrentPropertyValue.return_value = 0  # not a tab, not a document
+    root.FindAll.return_value = col
+
+    mock_uia = MagicMock()
+    mock_uia.ElementFromHandle.return_value = root
+
+    return mock_uia, tab_elements
+
+
+def test_fetch_tabs_happy_path_returns_tab_infos():
+    mock_uia, _ = _make_uia_tree(["Tab A", "Tab B"])
+
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia):
+        result = fetch_tabs(hwnd=42)
+
+    assert len(result) == 2
+    assert result[0] == TabInfo(name="Tab A", hwnd=42, index=0)
+    assert result[1] == TabInfo(name="Tab B", hwnd=42, index=1)
+
+
+def test_select_tab_happy_path_calls_select():
+    mock_uia, tab_elements = _make_uia_tree(["Tab A"])
+    mock_pattern = MagicMock()
+    tab_elements[0].GetCurrentPattern.return_value = mock_pattern
+    mock_uiac = MagicMock()
+    mock_comtypes_gen = MagicMock()
+    mock_comtypes_gen.UIAutomationClient = mock_uiac
+
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia), \
+         patch.dict("sys.modules", {
+             "comtypes": MagicMock(),
+             "comtypes.gen": mock_comtypes_gen,
+             "comtypes.gen.UIAutomationClient": mock_uiac,
+         }):
+        select_tab(TabInfo(name="Tab A", hwnd=42, index=0))
+
+    mock_pattern.QueryInterface.return_value.Select.assert_called_once()
