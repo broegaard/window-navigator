@@ -607,6 +607,8 @@ class NavigatorOverlay:
         try:
             from windows_navigator.tabs import fetch_tabs
             for w in windows:
+                if w.process_name.upper() == "OUTLOOK.EXE":
+                    continue
                 tabs = fetch_tabs(w.hwnd)
                 if tabs and self._controller is not None:
                     self._root.after(0, self._on_tabs_fetched, w.hwnd, tabs)
