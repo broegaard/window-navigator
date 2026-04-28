@@ -123,7 +123,7 @@ class IconExtractor:
     """Extracts a window's app icon from Win32 APIs, with a grey fallback on failure."""
 
     @staticmethod
-    def extract(hwnd: int) -> Image.Image:
+    def extract(hwnd: int, exe_path: str = "") -> Image.Image:
         try:
             import ctypes
             import ctypes.wintypes
@@ -134,15 +134,15 @@ class IconExtractor:
             import win32process
             from PIL import Image as PILImage
 
-            # Resolve exe path once — needed for both shell-image-list and SHGetFileInfoW paths
-            exe_path = ""
-            try:
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                proc = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-                exe_path = _query_exe_path(proc)
-                win32api.CloseHandle(proc)
-            except Exception:
-                pass
+            # Resolve exe path only when the caller hasn't already done so.
+            if not exe_path:
+                try:
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    proc = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+                    exe_path = _query_exe_path(proc)
+                    win32api.CloseHandle(proc)
+                except Exception:
+                    pass
 
             owned_icon = False
             render_size = _ICON_SIZE
@@ -289,7 +289,7 @@ class RealWindowProvider:
         results: list[WindowInfo] = []
         for hwnd in hwnds:
             title = win32gui.GetWindowText(hwnd)
-            process_name = self._get_process_name(hwnd, win32process)
+            process_name, exe_path = self._get_process_info(hwnd, win32process)
             if process_name.lower() in _EXCLUDED_PROCESSES:
                 continue
             if not all(f(hwnd, title, process_name) for f in self._extra_filters):
@@ -297,7 +297,7 @@ class RealWindowProvider:
             desktop_number = desktop_numbers.get(hwnd, 0)
             if desktop_number == -1:
                 continue  # ghost window on a desktop that no longer exists
-            icon = IconExtractor.extract(hwnd)
+            icon = IconExtractor.extract(hwnd, exe_path)
             is_current = is_current_map.get(hwnd, True)
             results.append(
                 WindowInfo(
@@ -314,7 +314,8 @@ class RealWindowProvider:
         return results
 
     @staticmethod
-    def _get_process_name(hwnd: int, win32process: object) -> str:
+    def _get_process_info(hwnd: int, win32process: object) -> tuple[str, str]:
+        """Return (process_name, exe_path) for *hwnd*, opening the process handle once."""
         try:
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             import win32api
@@ -323,6 +324,6 @@ class RealWindowProvider:
             handle = win32api.OpenProcess(wc.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             exe_path = _query_exe_path(handle)
             win32api.CloseHandle(handle)
-            return os.path.basename(exe_path)
+            return os.path.basename(exe_path), exe_path
         except Exception:
-            return ""
+            return "", ""
