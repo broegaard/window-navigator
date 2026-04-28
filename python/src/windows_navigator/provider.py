@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections import OrderedDict
 from typing import Callable, Protocol, Sequence
 
 from PIL import Image
@@ -32,6 +33,8 @@ _FALLBACK_ICON: Image.Image = Image.new("RGBA", _ICON_SIZE, color=(128, 128, 128
 
 # Process names to never show in the window list (case-insensitive)
 _EXCLUDED_PROCESSES = {"textinputhost.exe"}
+
+_ICON_CACHE_MAX = 256
 
 DesktopAssigner = Callable[[list[int]], tuple[dict[int, int], dict[int, bool]]]
 
@@ -263,14 +266,14 @@ class RealWindowProvider:
         self._assign_desktops = assign_desktops
         self._flashing: set[int] = flashing if flashing is not None else set()
         self._extra_filters: list[WindowFilter] = list(extra_filters) if extra_filters else []
-        self._icon_cache: dict[str, Image.Image] = {}
+        self._icon_cache: OrderedDict[str, Image.Image] = OrderedDict()
 
     def get_windows(self) -> list[WindowInfo]:
         import win32con
         import win32gui
         import win32process
 
-        hwnds: list[int] = []
+        hwnd_titles: list[tuple[int, str]] = []
 
         def _enum_callback(hwnd: int, _: object) -> bool:
             if not win32gui.IsWindowVisible(hwnd):
@@ -280,16 +283,16 @@ class RealWindowProvider:
             title = win32gui.GetWindowText(hwnd)
             if not title:
                 return True
-            hwnds.append(hwnd)
+            hwnd_titles.append((hwnd, title))
             return True
 
         win32gui.EnumWindows(_enum_callback, None)
+        hwnds = [hwnd for hwnd, _ in hwnd_titles]
 
         desktop_numbers, is_current_map = self._assign_desktops(hwnds)
 
         results: list[WindowInfo] = []
-        for hwnd in hwnds:
-            title = win32gui.GetWindowText(hwnd)
+        for hwnd, title in hwnd_titles:
             process_name, exe_path = self._get_process_info(hwnd, win32process)
             if process_name.lower() in _EXCLUDED_PROCESSES:
                 continue
@@ -300,10 +303,14 @@ class RealWindowProvider:
                 continue  # ghost window on a desktop that no longer exists
             if exe_path:
                 cache_key = exe_path.lower()
-                icon = self._icon_cache.get(cache_key)
-                if icon is None:
+                if cache_key in self._icon_cache:
+                    self._icon_cache.move_to_end(cache_key)
+                    icon = self._icon_cache[cache_key]
+                else:
                     icon = IconExtractor.extract(hwnd, exe_path)
                     self._icon_cache[cache_key] = icon
+                    if len(self._icon_cache) > _ICON_CACHE_MAX:
+                        self._icon_cache.popitem(last=False)
             else:
                 icon = IconExtractor.extract(hwnd, exe_path)
             is_current = is_current_map.get(hwnd, True)
