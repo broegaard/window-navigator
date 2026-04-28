@@ -25,6 +25,7 @@ Double-tap **Ctrl** again while the overlay is open to expand / collapse all bro
 | `Ctrl++` / `Ctrl+-` | Increment/decrement the active desktop badge |
 | `Tab` / `Shift+Tab` | Cycle app filter (icon strip) |
 | `Ctrl+`` ` | Toggle bell filter — show only windows with notifications |
+| `Ctrl+Backspace` / `Ctrl+W` | Delete word left in the search field |
 
 ### Navigation
 
