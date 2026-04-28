@@ -1,10 +1,13 @@
 """User configuration stored in a TOML file."""
 from __future__ import annotations
 
+import logging
 import os
 import tomllib
 from enum import Enum
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 class HotkeyChoice(str, Enum):
@@ -25,7 +28,10 @@ def load_hotkey() -> HotkeyChoice:
         with open(_config_path(), "rb") as f:
             data = tomllib.load(f)
         return HotkeyChoice(data.get("hotkey", HotkeyChoice.DOUBLE_TAP_CTRL.value))
+    except FileNotFoundError:
+        return HotkeyChoice.DOUBLE_TAP_CTRL
     except Exception:
+        log.warning("Failed to load config from %s", _config_path(), exc_info=True)
         return HotkeyChoice.DOUBLE_TAP_CTRL
 
 
