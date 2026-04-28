@@ -105,8 +105,17 @@ class OverlayController:
 
     def _invalidate_text_filter_cache(self) -> None:
         self.__dict__.pop("text_filtered_windows", None)
+        self.__dict__.pop("_tab_query_matches", None)
+        self.__dict__.pop("flat_list", None)
 
-    @property
+    def _invalidate_view_caches(self) -> None:
+        self.__dict__.pop("_tab_query_matches", None)
+        self.__dict__.pop("flat_list", None)
+
+    def _invalidate_flat_cache(self) -> None:
+        self.__dict__.pop("flat_list", None)
+
+    @functools.cached_property
     def _tab_query_matches(self) -> dict[int, list[TabInfo]]:
         """Expanded windows not matched by title/process but having tabs matching the text query.
 
@@ -149,7 +158,7 @@ class OverlayController:
             result.append(w)
         return result
 
-    @property
+    @functools.cached_property
     def flat_list(self) -> list[WindowInfo | TabInfo]:
         """Filtered windows with expanded tab rows interleaved immediately after their parent."""
         tab_matches = self._tab_query_matches
@@ -212,6 +221,7 @@ class OverlayController:
         self._tabs[hwnd] = tabs
         if self._want_all_expanded and len(tabs) > 1:
             self._expanded.add(hwnd)
+        self._invalidate_view_caches()
 
     def toggle_expansion(self, hwnd: int) -> None:
         """Expand or collapse the tab list for *hwnd*.
@@ -223,6 +233,7 @@ class OverlayController:
             self._expanded.discard(hwnd)
         elif hwnd in self._tabs and len(self._tabs[hwnd]) > 1:
             self._expanded.add(hwnd)
+        self._invalidate_view_caches()
         flat = self.flat_list
         for i, item in enumerate(flat):
             if isinstance(item, WindowInfo) and item.hwnd == hwnd:
@@ -252,6 +263,7 @@ class OverlayController:
         else:
             self._expanded |= hwnds_with_tabs
             self._want_all_expanded = True
+        self._invalidate_view_caches()
         n = len(self.flat_list)
         if n == 0:
             self.selection_index = -1
@@ -320,16 +332,19 @@ class OverlayController:
         else:
             new_index = (current + direction) % len(icons)
         self._app_filter = icons[new_index].process_name
+        self._invalidate_flat_cache()
         self.selection_index = 0 if self.flat_list else -1
 
     def clear_app_filter(self) -> None:
         """Remove the active app filter and reset selection."""
         self._app_filter = None
+        self._invalidate_flat_cache()
         self.selection_index = 0 if self.flat_list else -1
 
     def toggle_bell_filter(self) -> None:
         """Toggle the notification-only filter and reset selection."""
         self._bell_filter = not self._bell_filter
+        self._invalidate_flat_cache()
         self.selection_index = 0 if self.flat_list else -1
 
     def move_up(self) -> None:

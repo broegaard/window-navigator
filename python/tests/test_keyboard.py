@@ -1206,3 +1206,123 @@ def test_text_filtered_windows_cache_reused_across_multiple_accesses():
     first = ctrl.text_filtered_windows
     second = ctrl.text_filtered_windows
     assert first is second
+
+
+# ---------------------------------------------------------------------------
+# flat_list and _tab_query_matches caching
+# ---------------------------------------------------------------------------
+
+
+def test_flat_list_cached_across_accesses():
+    """Two reads without any intervening mutation return the same list object."""
+    ctrl = OverlayController(_windows("A", "B"))
+    first = ctrl.flat_list
+    second = ctrl.flat_list
+    assert first is second
+
+
+def test_flat_list_cache_invalidated_by_set_query():
+    ctrl = OverlayController(_windows("Alpha", "Beta"))
+    _ = ctrl.flat_list
+    ctrl.set_query("Alpha")
+    assert len(ctrl.flat_list) == 1
+
+
+def test_flat_list_cache_invalidated_by_set_desktop_nums():
+    ctrl = OverlayController([
+        WindowInfo(hwnd=1, title="A", process_name="a.exe", desktop_number=1),
+        WindowInfo(hwnd=2, title="B", process_name="b.exe", desktop_number=2),
+    ])
+    _ = ctrl.flat_list
+    ctrl.set_desktop_nums({1})
+    assert len(ctrl.flat_list) == 1
+
+
+def test_flat_list_cache_invalidated_by_reset():
+    ctrl = OverlayController(_windows("Alpha", "Beta"))
+    _ = ctrl.flat_list
+    ctrl.reset(_windows("X"))
+    assert len(ctrl.flat_list) == 1
+
+
+def test_flat_list_cache_invalidated_by_toggle_bell_filter():
+    ctrl = OverlayController([
+        WindowInfo(hwnd=1, title="A", process_name="a.exe", has_notification=True),
+        WindowInfo(hwnd=2, title="B", process_name="b.exe", has_notification=False),
+    ])
+    assert len(ctrl.flat_list) == 2
+    ctrl.toggle_bell_filter()
+    assert len(ctrl.flat_list) == 1
+
+
+def test_flat_list_cache_invalidated_by_cycle_app_filter():
+    ctrl = OverlayController(_windows("A", "B"))
+    assert len(ctrl.flat_list) == 2
+    ctrl.cycle_app_filter(1)
+    assert len(ctrl.flat_list) == 1
+
+
+def test_flat_list_cache_invalidated_by_clear_app_filter():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.cycle_app_filter(1)
+    assert len(ctrl.flat_list) == 1
+    ctrl.clear_app_filter()
+    assert len(ctrl.flat_list) == 2
+
+
+def test_flat_list_cache_invalidated_by_set_tabs():
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl._expanded.add(1)
+    assert len(ctrl.flat_list) == 1  # no tabs yet
+    ctrl.set_tabs(1, _make_tabs(1, "Tab A", "Tab B"))
+    assert len(ctrl.flat_list) == 3  # window + 2 tabs
+
+
+def test_flat_list_cache_invalidated_by_toggle_expansion():
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl.set_tabs(1, _make_tabs(1, "Tab A", "Tab B"))
+    assert len(ctrl.flat_list) == 1
+    ctrl.toggle_expansion(1)
+    assert len(ctrl.flat_list) == 3
+
+
+def test_flat_list_cache_invalidated_by_toggle_all_expansions():
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl.set_tabs(1, _make_tabs(1, "Tab A", "Tab B"))
+    assert len(ctrl.flat_list) == 1
+    ctrl.toggle_all_expansions()
+    assert len(ctrl.flat_list) == 3
+
+
+def test_tab_query_matches_cached_across_accesses():
+    """Two reads without any intervening mutation return the same dict object."""
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl.set_tabs(1, _make_tabs(1, "Gmail - Inbox"))
+    ctrl._expanded.add(1)
+    ctrl.set_query("inbox")
+    first = ctrl._tab_query_matches
+    second = ctrl._tab_query_matches
+    assert first is second
+
+
+def test_tab_query_matches_cache_invalidated_by_set_query():
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl.set_tabs(1, _make_tabs(1, "Gmail - Inbox", "GitHub"))
+    ctrl._expanded.add(1)
+    ctrl.set_query("inbox")
+    first = ctrl._tab_query_matches
+    ctrl.set_query("github")
+    second = ctrl._tab_query_matches
+    assert first is not second
+    assert set(t.name for t in second[1]) == {"GitHub"}
+
+
+def test_tab_query_matches_cache_invalidated_by_set_tabs():
+    ctrl = OverlayController([WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe")])
+    ctrl._expanded.add(1)
+    ctrl.set_query("inbox")
+    first = ctrl._tab_query_matches  # empty — no tabs yet
+    ctrl.set_tabs(1, _make_tabs(1, "Gmail - Inbox"))
+    second = ctrl._tab_query_matches  # now has a match
+    assert first is not second
+    assert 1 in second
