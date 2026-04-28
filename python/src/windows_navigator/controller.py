@@ -107,6 +107,7 @@ class OverlayController:
         self.__dict__.pop("text_filtered_windows", None)
         self.__dict__.pop("_tab_query_matches", None)
         self.__dict__.pop("flat_list", None)
+        self.__dict__.pop("app_icons", None)
 
     def _invalidate_view_caches(self) -> None:
         self.__dict__.pop("_tab_query_matches", None)
@@ -172,7 +173,7 @@ class OverlayController:
                 result.extend(self._tabs[hwnd])
         return result
 
-    @property
+    @functools.cached_property
     def app_icons(self) -> list[WindowInfo]:
         """One representative WindowInfo per unique process_name in text_filtered_windows.
 

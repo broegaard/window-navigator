@@ -5,11 +5,11 @@ from __future__ import annotations
 from windows_navigator.models import WindowInfo
 
 
-def _tokens_match(w: WindowInfo, query: str) -> bool:
-    """True if every whitespace-separated token in *query* appears in title or process name."""
+def _tokens_match(w: WindowInfo, tokens: list[str]) -> bool:
+    """True if every token in *tokens* appears in title or process name."""
     title = w.title.casefold()
     proc = w.process_name.casefold()
-    return all(t in title or t in proc for t in query.casefold().split())
+    return all(t in title or t in proc for t in tokens)
 
 
 def filter_windows(
@@ -27,6 +27,7 @@ def filter_windows(
     result = list(windows)
     if desktop_nums:
         result = [w for w in result if w.desktop_number in desktop_nums]
-    if not query or not query.strip():
+    tokens = query.casefold().split()
+    if not tokens:
         return result
-    return [w for w in result if _tokens_match(w, query)]
+    return [w for w in result if _tokens_match(w, tokens)]
