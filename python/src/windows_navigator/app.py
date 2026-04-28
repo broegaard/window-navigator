@@ -263,6 +263,106 @@ def _run_win_alt_space(show_queue: queue.Queue[int], stop_event: threading.Event
         pass
 
 
+def _run_ctrl_double_tap_shift(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
+    """Poll GetAsyncKeyState every 30 ms; trigger on two rising Shift edges within 300 ms while Ctrl is held.
+
+    Uses the same VK_F24 SendInput trick as _run_double_tap_ctrl to acquire the foreground lock.
+    """
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        import time
+
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+
+        VK_LCONTROL = 0xA2
+        VK_RCONTROL = 0xA3
+        VK_LSHIFT = 0xA0
+        VK_RSHIFT = 0xA1
+        VK_F24 = 0x87
+        DOUBLE_TAP_MS = 300.0
+        POLL_S = 0.030
+        WM_HOTKEY = 0x0312
+        HOTKEY_ID = 400
+        MOD_NOREPEAT = 0x4000
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+
+        msg = wt.MSG()
+        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
+
+        use_hotkey = bool(user32.RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_F24))
+
+        class _KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", ctypes.c_ushort),
+                ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_uint),
+                ("time", ctypes.c_uint),
+                ("dwExtraInfo", ctypes.c_size_t),
+            ]
+
+        class _INPUT_PADDING(ctypes.Structure):
+            _fields_ = [("_pad", ctypes.c_byte * 28)]
+
+        class _INPUT_UNION(ctypes.Union):
+            _fields_ = [("ki", _KEYBDINPUT), ("_pad", _INPUT_PADDING)]
+
+        class _INPUT(ctypes.Structure):
+            _fields_ = [("type", ctypes.c_uint), ("_u", _INPUT_UNION)]
+
+        def _send_vk(vk: int, flags: int = 0) -> None:
+            inp = _INPUT()
+            inp.type = INPUT_KEYBOARD
+            inp._u.ki.wVk = vk
+            inp._u.ki.dwFlags = flags
+            user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
+
+        def _trigger() -> None:
+            fg = user32.GetForegroundWindow()
+            if use_hotkey:
+                _send_vk(VK_F24)
+                _send_vk(VK_F24, KEYEVENTF_KEYUP)
+                deadline = time.monotonic() + 0.10
+                while time.monotonic() < deadline:
+                    if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                            show_queue.put(fg)
+                            return
+                    time.sleep(0.005)
+            show_queue.put(fg)
+
+        last_tap_ms = 0.0
+        shift_was_down = False
+
+        while not stop_event.is_set():
+            time.sleep(POLL_S)
+
+            lc = user32.GetAsyncKeyState(VK_LCONTROL)
+            rc = user32.GetAsyncKeyState(VK_RCONTROL)
+            ctrl_down = bool((lc | rc) & 0x8000)
+
+            ls = user32.GetAsyncKeyState(VK_LSHIFT)
+            rs = user32.GetAsyncKeyState(VK_RSHIFT)
+            shift_down = bool((ls | rs) & 0x8000)
+
+            if ctrl_down and shift_down and not shift_was_down:
+                now = time.monotonic() * 1000.0
+                if now - last_tap_ms <= DOUBLE_TAP_MS:
+                    _trigger()
+                    last_tap_ms = 0.0
+                else:
+                    last_tap_ms = now
+
+            shift_was_down = shift_down
+
+        if use_hotkey:
+            user32.UnregisterHotKey(None, HOTKEY_ID)
+
+    except Exception:
+        pass
+
+
 def _run_ctrl_shift_space(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
     """Register Ctrl+Shift+Space via RegisterHotKey; put to show_queue on each WM_HOTKEY."""
     try:
@@ -309,6 +409,8 @@ def _start_hotkey_listener(
         target = _run_win_alt_space
     elif choice == HotkeyChoice.CTRL_SHIFT_SPACE:
         target = _run_ctrl_shift_space
+    elif choice == HotkeyChoice.CTRL_DOUBLE_TAP_SHIFT:
+        target = _run_ctrl_double_tap_shift
     else:
         target = _run_double_tap_ctrl
     threading.Thread(target=target, args=(show_queue, stop_event), daemon=True,

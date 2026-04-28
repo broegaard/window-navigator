@@ -11,6 +11,7 @@ class HotkeyChoice(str, Enum):
     DOUBLE_TAP_CTRL = "double_tap_ctrl"
     WIN_ALT_SPACE = "win_alt_space"
     CTRL_SHIFT_SPACE = "ctrl_shift_space"
+    CTRL_DOUBLE_TAP_SHIFT = "ctrl_double_tap_shift"
 
 
 def _config_path() -> Path:
