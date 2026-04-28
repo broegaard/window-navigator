@@ -263,13 +263,54 @@ def _run_win_alt_space(show_queue: queue.Queue[int], stop_event: threading.Event
         pass
 
 
+def _run_ctrl_shift_space(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
+    """Register Ctrl+Shift+Space via RegisterHotKey; put to show_queue on each WM_HOTKEY."""
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        import time
+
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+
+        MOD_CONTROL = 0x0002
+        MOD_SHIFT = 0x0004
+        MOD_NOREPEAT = 0x4000
+        VK_SPACE = 0x20
+        WM_HOTKEY = 0x0312
+        HOTKEY_ID = 300
+
+        msg = wt.MSG()
+        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
+
+        if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_SPACE):
+            return
+
+        try:
+            while not stop_event.is_set():
+                if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                    if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                        show_queue.put(user32.GetForegroundWindow())
+                else:
+                    time.sleep(0.010)
+        finally:
+            user32.UnregisterHotKey(None, HOTKEY_ID)
+
+    except Exception:
+        pass
+
+
 def _start_hotkey_listener(
     show_queue: queue.Queue[int],
     choice: HotkeyChoice,
     stop_event: threading.Event,
 ) -> None:
     """Start the overlay hotkey listener thread for the given hotkey choice."""
-    target = _run_win_alt_space if choice == HotkeyChoice.WIN_ALT_SPACE else _run_double_tap_ctrl
+    if choice == HotkeyChoice.WIN_ALT_SPACE:
+        target = _run_win_alt_space
+    elif choice == HotkeyChoice.CTRL_SHIFT_SPACE:
+        target = _run_ctrl_shift_space
+    else:
+        target = _run_double_tap_ctrl
     threading.Thread(target=target, args=(show_queue, stop_event), daemon=True,
                      name="hotkey-listener").start()
 
