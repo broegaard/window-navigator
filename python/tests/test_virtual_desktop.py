@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 from windows_navigator.virtual_desktop import (
+    _ManagerCache,
     _get_registry_desktop_order,
     _guid_to_str,
     _make_guid,
@@ -15,6 +16,21 @@ from windows_navigator.virtual_desktop import (
     move_window_to_current_desktop,
     switch_to_desktop_number,
 )
+
+# ---------------------------------------------------------------------------
+# _ManagerCache
+# ---------------------------------------------------------------------------
+
+
+def test_manager_cache_initialises_once_and_returns_same_object():
+    """_ManagerCache.get() must initialise on the first call and return the cached
+    result on all subsequent calls without re-running the COM initialisation."""
+    cache = _ManagerCache()
+    result1 = cache.get()     # first call: runs initialisation (COM unavailable on Linux → None)
+    result2 = cache.get()     # second call: fast path — if self._attempted: return self._manager
+    assert result1 is result2
+    assert cache._attempted is True
+
 
 # ---------------------------------------------------------------------------
 # is_on_current_desktop
