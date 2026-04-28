@@ -602,8 +602,8 @@ def test_move_to_adjacent_unknown_current_desktop_returns_zero():
     assert result == 0
 
 
-def test_move_to_adjacent_appview_exception_still_returns_target():
-    """AppView.move failure is silently ignored; the target desktop is still returned."""
+def test_move_to_adjacent_appview_exception_returns_zero():
+    """AppView.move failure aborts the operation; desktop is not switched."""
     mock_pyvda = MagicMock()
     mock_pyvda.AppView.return_value.move.side_effect = OSError("move failed")
     with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
@@ -611,4 +611,4 @@ def test_move_to_adjacent_appview_exception_still_returns_target():
          patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=2), \
          patch.dict("sys.modules", {"pyvda": mock_pyvda}):
         result = move_window_to_adjacent_desktop(99, +1)
-    assert result == 3
+    assert result == 0

@@ -437,7 +437,7 @@ class NavigatorOverlay:
 
             if isinstance(item, TabInfo):
                 row_bg = c["row_sel"] if i == sel else c["tab_bg"]
-                self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="")
+                self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="", tags=(f"row_bg_{i}",))
                 self._canvas.create_text(
                     _TEXT_X,
                     y0 + rh // 2,
@@ -452,7 +452,7 @@ class NavigatorOverlay:
             # --- Window row ---
             w = item
             row_bg = c["row_sel"] if i == sel else c["row_bg"]
-            self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="")
+            self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="", tags=(f"row_bg_{i}",))
 
             # Expand/collapse indicator (shown only for windows with >1 tab)
             if self._controller.tab_count(w.hwnd) > 1:
@@ -531,6 +531,43 @@ class NavigatorOverlay:
         if 0 <= sel < len(flat):
             sel_y0 = ys[sel]
             sel_y1 = sel_y0 + _row_height(flat[sel])
+            top_frac, bottom_frac = self._canvas.yview()
+            view_top = top_frac * total_h
+            view_bottom = bottom_frac * total_h
+            if sel_y0 < view_top:
+                self._canvas.yview_moveto(sel_y0 / total_h)
+            elif sel_y1 > view_bottom:
+                visible_h = (bottom_frac - top_frac) * total_h
+                self._canvas.yview_moveto((sel_y1 - visible_h) / total_h)
+
+    def _refresh_selection_only(self, old_sel: int, new_sel: int) -> None:
+        """Update only the highlight color of the two affected rows and scroll into view.
+
+        Avoids a full canvas redraw when only the selection index changes.
+        """
+        if self._controller is None or self._canvas is None:
+            return
+        c = _colors()
+        flat = self._controller.flat_list
+
+        def _bg(i: int) -> str:
+            if i == new_sel:
+                return c["row_sel"]
+            return c["tab_bg"] if isinstance(flat[i], TabInfo) else c["row_bg"]
+
+        for idx in (old_sel, new_sel):
+            if 0 <= idx < len(flat):
+                self._canvas.itemconfig(f"row_bg_{idx}", fill=_bg(idx))
+
+        if 0 <= new_sel < len(flat):
+            y = 0
+            ys: list[int] = []
+            for item in flat:
+                ys.append(y)
+                y += _row_height(item)
+            total_h = max(y, 1)
+            sel_y0 = ys[new_sel]
+            sel_y1 = sel_y0 + _row_height(flat[new_sel])
             top_frac, bottom_frac = self._canvas.yview()
             view_top = top_frac * total_h
             view_bottom = bottom_frac * total_h
@@ -856,38 +893,44 @@ class NavigatorOverlay:
 
     def _on_arrow_up(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
         if self._controller:
+            old = self._controller.selection_index
             self._controller.move_up()
-            self._refresh_canvas()
+            self._refresh_selection_only(old, self._controller.selection_index)
         return "break"  # prevent Entry cursor movement
 
     def _on_arrow_down(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
         if self._controller:
+            old = self._controller.selection_index
             self._controller.move_down()
-            self._refresh_canvas()
+            self._refresh_selection_only(old, self._controller.selection_index)
         return "break"
 
     def _on_page_up(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
         if self._controller:
+            old = self._controller.selection_index
             self._controller.move_page_up(_MAX_ROWS_VISIBLE)
-            self._refresh_canvas()
+            self._refresh_selection_only(old, self._controller.selection_index)
         return "break"
 
     def _on_page_down(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
         if self._controller:
+            old = self._controller.selection_index
             self._controller.move_page_down(_MAX_ROWS_VISIBLE)
-            self._refresh_canvas()
+            self._refresh_selection_only(old, self._controller.selection_index)
         return "break"
 
     def _on_ctrl_home(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
         if self._controller:
+            old = self._controller.selection_index
             self._controller.move_to_first()
-            self._refresh_canvas()
+            self._refresh_selection_only(old, self._controller.selection_index)
         return "break"
 
     def _on_ctrl_end(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
         if self._controller:
+            old = self._controller.selection_index
             self._controller.move_to_last()
-            self._refresh_canvas()
+            self._refresh_selection_only(old, self._controller.selection_index)
         return "break"
 
     def _on_focus_in(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
