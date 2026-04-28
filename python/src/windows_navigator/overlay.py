@@ -496,7 +496,7 @@ class NavigatorOverlay:
                 )
 
         # Scroll the selected row into view only when it falls outside the viewport
-        if sel >= 0 and flat:
+        if 0 <= sel < len(flat):
             sel_y0 = ys[sel]
             sel_y1 = sel_y0 + _row_height(flat[sel])
             top_frac, bottom_frac = self._canvas.yview()

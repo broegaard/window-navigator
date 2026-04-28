@@ -248,6 +248,11 @@ class OverlayController:
         else:
             self._expanded |= hwnds_with_tabs
             self._want_all_expanded = True
+        n = len(self.flat_list)
+        if n == 0:
+            self.selection_index = -1
+        elif self.selection_index >= n:
+            self.selection_index = n - 1
 
     def selected_item(self) -> WindowInfo | TabInfo | None:
         """Return the currently selected item (window row or tab row), or None."""
