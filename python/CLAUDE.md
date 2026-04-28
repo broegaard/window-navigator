@@ -158,6 +158,23 @@ with patch.dict("sys.modules", {"winreg": mock_winreg}):
     result = get_current_desktop_number()
 ```
 
+**`win32*` modules are Windows-only.** Functions that defer `import win32con` / `import win32gui` look up `sys.modules` on each call, so patching before the call works:
+```python
+win32con, win32gui = MagicMock(), MagicMock()
+win32gui.IsWindow.return_value = True
+with patch.dict(sys.modules, {"win32con": win32con, "win32gui": win32gui}):
+    result = activate_window(42)
+```
+
+**`ctypes.windll` is Windows-only.** On Linux the attribute does not exist; use `create=True` to add it for the test and have `patch.object` restore the missing state afterward:
+```python
+import ctypes
+mock_windll = MagicMock()
+mock_windll.user32 = MagicMock()
+with patch.object(ctypes, "windll", mock_windll, create=True):
+    _force_foreground(99)
+```
+
 ## Test file map
 
 | File | What it covers |
@@ -170,3 +187,6 @@ with patch.dict("sys.modules", {"winreg": mock_winreg}):
 | `test_tray.py` | `_make_tray_icon` pixel-level color checks |
 | `test_theme.py` | `desktop_badge_color` format and cycling |
 | `test_overlay.py` | `_desktop_badge_color` overlay helper (requires tkinter stub) |
+| `test_config.py` | `_config_path` (APPDATA env var / home fallback), `load_hotkey` (missing file, invalid TOML, all valid values), `save_hotkey` (content, directory creation, roundtrip), `HotkeyChoice` enum |
+| `test_activation.py` | `activate_window` (missing/minimized/normal/exception), `_force_foreground`, `_get_cursor_monitor_workarea` (happy path with mocked `windll`, fallback on exception) |
+| `test_tabs.py` | `_collect_tab_items` (tab-item/document-node/recursion/max-depth/document-barrier), `_get_children`, `fetch_tabs`/`select_tab` Linux fallbacks |
