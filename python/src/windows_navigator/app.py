@@ -7,6 +7,8 @@ import re
 import threading
 import tkinter as tk
 
+from windows_navigator.config import HotkeyChoice, load_hotkey
+
 
 def _start_flash_monitor(flashing: set[int]) -> None:
     """Maintain *flashing* — a set of HWNDs that have a visible notification.
@@ -122,112 +124,154 @@ def _start_flash_monitor(flashing: set[int]) -> None:
     threading.Thread(target=_run, daemon=True, name="flash-monitor").start()
 
 
-def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
-    """Detect double-tap of Ctrl via GetAsyncKeyState polling.
+def _run_double_tap_ctrl(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
+    """Poll GetAsyncKeyState every 30 ms; trigger on two rising Ctrl edges within 300 ms.
 
-    WH_KEYBOARD_LL is incompatible with Python: its hook proc must acquire the GIL,
-    but the GIL may be held by the Tk main thread at the moment a key event occurs,
-    causing a deadlock that blocks all keyboard input system-wide.
-
-    Poll GetAsyncKeyState every 30 ms instead — no hook, no GIL contention.
-    Two rising edges of either Ctrl key within 300 ms trigger the overlay:
-
-    On detection, SendInput injects a synthetic VK_F24 keypress. VK_F24 is
-    registered with RegisterHotKey so Windows delivers WM_HOTKEY to this thread.
-    WM_HOTKEY carries the foreground-lock exemption, making SetForegroundWindow in
-    _grab_focus reliable. Falls back to a direct put() if RegisterHotKey fails.
+    Injects a synthetic VK_F24 via SendInput and drains its WM_HOTKEY to acquire
+    the foreground-lock exemption before putting to show_queue. Falls back to a
+    direct put() when RegisterHotKey fails.
     """
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        import time
 
-    def _run() -> None:
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+
+        VK_LCONTROL = 0xA2
+        VK_RCONTROL = 0xA3
+        VK_F24 = 0x87
+        DOUBLE_TAP_MS = 300.0
+        POLL_S = 0.030
+        WM_HOTKEY = 0x0312
+        HOTKEY_ID = 100
+        MOD_NOREPEAT = 0x4000
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+
+        # PeekMessageW must be called once to create a message queue before RegisterHotKey.
+        msg = wt.MSG()
+        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
+
+        use_hotkey = bool(user32.RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_F24))
+
+        class _KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", ctypes.c_ushort),
+                ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_uint),
+                ("time", ctypes.c_uint),
+                ("dwExtraInfo", ctypes.c_size_t),
+            ]
+
+        # Union must be sized by its largest member (MOUSEINPUT = 7 × 4 bytes).
+        class _INPUT_PADDING(ctypes.Structure):
+            _fields_ = [("_pad", ctypes.c_byte * 28)]
+
+        class _INPUT_UNION(ctypes.Union):
+            _fields_ = [("ki", _KEYBDINPUT), ("_pad", _INPUT_PADDING)]
+
+        class _INPUT(ctypes.Structure):
+            _fields_ = [("type", ctypes.c_uint), ("_u", _INPUT_UNION)]
+
+        def _send_vk(vk: int, flags: int = 0) -> None:
+            inp = _INPUT()
+            inp.type = INPUT_KEYBOARD
+            inp._u.ki.wVk = vk
+            inp._u.ki.dwFlags = flags
+            user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
+
+        def _trigger() -> None:
+            fg = user32.GetForegroundWindow()
+            if use_hotkey:
+                _send_vk(VK_F24)
+                _send_vk(VK_F24, KEYEVENTF_KEYUP)
+                # Wait up to 100 ms for WM_HOTKEY — it grants the foreground lock.
+                deadline = time.monotonic() + 0.10
+                while time.monotonic() < deadline:
+                    if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                            show_queue.put(fg)
+                            return
+                    time.sleep(0.005)
+            show_queue.put(fg)
+
+        last_tap_ms = 0.0
+        ctrl_was_down = False
+
+        while not stop_event.is_set():
+            time.sleep(POLL_S)
+
+            lc = user32.GetAsyncKeyState(VK_LCONTROL)
+            rc = user32.GetAsyncKeyState(VK_RCONTROL)
+            ctrl_down = bool((lc | rc) & 0x8000)
+
+            if ctrl_down and not ctrl_was_down:
+                now = time.monotonic() * 1000.0
+                if now - last_tap_ms <= DOUBLE_TAP_MS:
+                    _trigger()
+                    last_tap_ms = 0.0
+                else:
+                    last_tap_ms = now
+
+            ctrl_was_down = ctrl_down
+
+        if use_hotkey:
+            user32.UnregisterHotKey(None, HOTKEY_ID)
+
+    except Exception:
+        pass
+
+
+def _run_win_alt_space(show_queue: queue.Queue[int], stop_event: threading.Event) -> None:
+    """Register Win+Alt+Space via RegisterHotKey; put to show_queue on each WM_HOTKEY.
+
+    WM_HOTKEY delivery grants the foreground-lock exemption, so SetForegroundWindow
+    in the overlay succeeds without the SendInput trick used by the double-tap path.
+    """
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        import time
+
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+
+        MOD_ALT = 0x0001
+        MOD_WIN = 0x0008
+        MOD_NOREPEAT = 0x4000
+        VK_SPACE = 0x20
+        WM_HOTKEY = 0x0312
+        HOTKEY_ID = 200
+
+        msg = wt.MSG()
+        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
+
+        if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_SPACE):
+            return
+
         try:
-            import ctypes
-            import ctypes.wintypes as wt
-            import time
+            while not stop_event.is_set():
+                if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                    if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                        show_queue.put(user32.GetForegroundWindow())
+                else:
+                    time.sleep(0.010)
+        finally:
+            user32.UnregisterHotKey(None, HOTKEY_ID)
 
-            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
-            VK_LCONTROL = 0xA2
-            VK_RCONTROL = 0xA3
-            VK_F24 = 0x87
-            DOUBLE_TAP_MS = 300.0
-            POLL_S = 0.030
-            WM_HOTKEY = 0x0312
-            HOTKEY_ID = 100
-            MOD_NOREPEAT = 0x4000
-            INPUT_KEYBOARD = 1
-            KEYEVENTF_KEYUP = 0x0002
 
-            # Create a message queue for this thread so RegisterHotKey / WM_HOTKEY work.
-            msg = wt.MSG()
-            user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
-
-            use_hotkey = bool(user32.RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_F24))
-
-            class _KEYBDINPUT(ctypes.Structure):
-                _fields_ = [
-                    ("wVk", ctypes.c_ushort),
-                    ("wScan", ctypes.c_ushort),
-                    ("dwFlags", ctypes.c_uint),
-                    ("time", ctypes.c_uint),
-                    ("dwExtraInfo", ctypes.c_size_t),
-                ]
-
-            # Union must be sized by its largest member (MOUSEINPUT = 7 × 4 bytes).
-            class _INPUT_PADDING(ctypes.Structure):
-                _fields_ = [("_pad", ctypes.c_byte * 28)]
-
-            class _INPUT_UNION(ctypes.Union):
-                _fields_ = [("ki", _KEYBDINPUT), ("_pad", _INPUT_PADDING)]
-
-            class _INPUT(ctypes.Structure):
-                _fields_ = [("type", ctypes.c_uint), ("_u", _INPUT_UNION)]
-
-            def _send_vk(vk: int, flags: int = 0) -> None:
-                inp = _INPUT()
-                inp.type = INPUT_KEYBOARD
-                inp._u.ki.wVk = vk
-                inp._u.ki.dwFlags = flags
-                user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
-
-            def _trigger() -> None:
-                fg = user32.GetForegroundWindow()
-                if use_hotkey:
-                    _send_vk(VK_F24)
-                    _send_vk(VK_F24, KEYEVENTF_KEYUP)
-                    # Wait up to 100 ms for WM_HOTKEY — it grants the foreground lock.
-                    deadline = time.monotonic() + 0.10
-                    while time.monotonic() < deadline:
-                        if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-                            if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
-                                show_queue.put(fg)
-                                return
-                        time.sleep(0.005)
-                show_queue.put(fg)
-
-            last_tap_ms = 0.0
-            ctrl_was_down = False
-
-            while True:
-                time.sleep(POLL_S)
-
-                lc = user32.GetAsyncKeyState(VK_LCONTROL)
-                rc = user32.GetAsyncKeyState(VK_RCONTROL)
-                ctrl_down = bool((lc | rc) & 0x8000)
-
-                if ctrl_down and not ctrl_was_down:
-                    now = time.monotonic() * 1000.0
-                    if now - last_tap_ms <= DOUBLE_TAP_MS:
-                        _trigger()
-                        last_tap_ms = 0.0
-                    else:
-                        last_tap_ms = now
-
-                ctrl_was_down = ctrl_down
-
-        except Exception:
-            pass
-
-    threading.Thread(target=_run, daemon=True, name="hotkey-listener").start()
+def _start_hotkey_listener(
+    show_queue: queue.Queue[int],
+    choice: HotkeyChoice,
+    stop_event: threading.Event,
+) -> None:
+    """Start the overlay hotkey listener thread for the given hotkey choice."""
+    target = _run_win_alt_space if choice == HotkeyChoice.WIN_ALT_SPACE else _run_double_tap_ctrl
+    threading.Thread(target=target, args=(show_queue, stop_event), daemon=True,
+                     name="hotkey-listener").start()
 
 
 def _start_move_hotkey_listener(move_queue: queue.Queue[tuple[int, int]]) -> None:
@@ -343,9 +387,24 @@ def main() -> None:
         _drain_show_queue()
         root.after(50, poll_queue)
 
-    _start_hotkey_listener(show_queue)
+    from windows_navigator.settings import open_settings_window
 
-    tray = TrayIcon(on_exit=root.quit)
+    _current_hotkey: list[HotkeyChoice] = [load_hotkey()]
+    _hotkey_stop: list[threading.Event] = [threading.Event()]
+    _start_hotkey_listener(show_queue, _current_hotkey[0], _hotkey_stop[0])
+
+    def _on_hotkey_saved(new_choice: HotkeyChoice) -> None:
+        old_stop = _hotkey_stop[0]
+        _hotkey_stop[0] = threading.Event()
+        old_stop.set()
+        _current_hotkey[0] = new_choice
+        _start_hotkey_listener(show_queue, new_choice, _hotkey_stop[0])
+
+    def _open_settings() -> None:
+        # pystray calls this from its own thread; marshal to Tk main thread.
+        root.after(0, lambda: open_settings_window(root, _current_hotkey[0], _on_hotkey_saved))
+
+    tray = TrayIcon(on_exit=root.quit, on_settings=_open_settings)
     initial_desktop = get_current_desktop_number()
     tray.start(desktop_number=initial_desktop)
 

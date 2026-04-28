@@ -55,8 +55,9 @@ def _load_font(size: int) -> object | None:
 
 
 class TrayIcon:
-    def __init__(self, on_exit: Callable[[], None]) -> None:
+    def __init__(self, on_exit: Callable[[], None], on_settings: Callable[[], None]) -> None:
         self._on_exit = on_exit
+        self._on_settings = on_settings
         self._icon = None
 
     def start(self, desktop_number: int = 0) -> None:
@@ -65,6 +66,8 @@ class TrayIcon:
         img = _make_tray_icon(desktop_number)
         menu = pystray.Menu(
             pystray.MenuItem("Windows Navigator", None, enabled=False),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Settings", self._do_settings),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit", self._do_exit),
         )
@@ -79,6 +82,9 @@ class TrayIcon:
         if self._icon is not None:
             self._icon.stop()
             self._icon = None
+
+    def _do_settings(self) -> None:
+        self._on_settings()
 
     def _do_exit(self) -> None:
         self.stop()
