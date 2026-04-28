@@ -31,7 +31,7 @@ Run a single test file: `pytest tests/test_filter.py`
 | UI | `tkinter` (stdlib) |
 | Win32 API | `pywin32` (`win32gui`, `win32process`, `win32api`, `win32con`) |
 | System tray | `pystray` + `Pillow` |
-| Global hotkey | `GetAsyncKeyState` polling + `RegisterHotKey`/`SendInput` trick via ctypes — double-tap Ctrl (no extra dep) |
+| Global hotkey | configurable via `config.toml`; double-tap Ctrl (`GetAsyncKeyState` polling + `RegisterHotKey`/`SendInput` trick) or Win+Alt+Space (`RegisterHotKey` direct) — ctypes only, no extra dep |
 | Theme detection | `darkdetect` |
 | Virtual desktop | Raw ctypes COM + `pyvda` (Windows 11 22H2+ workaround) |
 | UIA (tabs) | `comtypes` |
@@ -59,6 +59,8 @@ src/windows_navigator/
     tabs.py              # UIA tab discovery + activation — Windows-only, deferred imports
     theme.py             # DESKTOP_COLORS, desktop_badge_color() — shared colour palette
     tray.py              # TrayIcon — pystray system tray
+    config.py            # HotkeyChoice enum, load_hotkey()/save_hotkey() — %APPDATA%\windows-navigator\config.toml
+    settings.py          # settings Toplevel modal — hotkey radio-button selection
 
 tests/
     test_filter.py           # filter_windows()
@@ -72,7 +74,7 @@ tests/
 
 ### Event flow
 
-1. `_start_hotkey_listener` thread polls `GetAsyncKeyState` every 30 ms; on double-tap Ctrl it injects a synthetic `VK_F24` via `SendInput`, drains `WM_HOTKEY` from its own message queue (granting the foreground-lock exemption), then enqueues the foreground HWND to `show_queue`
+1. `_start_hotkey_listener` reads `load_hotkey()` and dispatches to `_run_double_tap_ctrl` or `_run_win_alt_space`. The double-tap path polls `GetAsyncKeyState` every 30 ms; on detection it injects a synthetic `VK_F24` via `SendInput`, drains `WM_HOTKEY` (foreground-lock grant), then enqueues to `show_queue`. The Win+Alt+Space path just waits for `WM_HOTKEY` from `RegisterHotKey` — the grant arrives with the message.
 2. `_drain_show_queue()` runs on the Tk main thread (≤ 50 ms via `poll_queue`), calls `provider.get_windows()`
 3. Current desktop derived from windows, passed as `initial_desktop=N` to `overlay.show()`
 4. Overlay renders; user interaction updates `OverlayController` state (pure Python)
@@ -84,12 +86,15 @@ tests/
 - **Single hidden Tk root** — one withdrawn `Tk()` root with a `Toplevel` overlay prevents event-loop conflicts with pystray.
 - **`GetAsyncKeyState` polling for double-tap Ctrl detection** — polls every 30 ms, detects two rising edges within 300 ms. `WH_KEYBOARD_LL` was rejected: its hook proc must acquire the GIL, which the Tk main thread can hold during event callbacks, causing a system-wide keyboard deadlock.
 - **`RegisterHotKey`/`SendInput` trick for foreground-lock acquisition** — `SetForegroundWindow` silently fails without the foreground lock. On double-tap, the listener injects a synthetic `VK_F24` keypress via `SendInput`; because `VK_F24` is registered with `RegisterHotKey(MOD_NOREPEAT)`, Windows delivers `WM_HOTKEY` to the listener thread, granting the process the foreground-lock exemption. The listener drains that message via `PeekMessageW` before putting to `show_queue`, so `_grab_focus`'s subsequent `SetForegroundWindow` is covered. Falls back to direct `put()` if `RegisterHotKey` fails (e.g. key already claimed). `PeekMessageW` must be called once before `RegisterHotKey` to create a message queue for the thread — Win32 threads have no queue until they call a message function.
+- **Win+Alt+Space uses `RegisterHotKey` directly — no `SendInput` trick needed** — because Win+Alt+Space is registered as the actual hotkey (not a synthetic proxy), Windows delivers `WM_HOTKEY` in response to real user input, which carries the foreground-lock exemption natively. `_run_win_alt_space` uses `PeekMessageW` in a 10 ms sleep loop (not blocking `GetMessageW`) so the `threading.Event` stop flag is checked between polls and `UnregisterHotKey` runs in the `finally` block.
+- **Hotkey choice persisted in TOML, switched live** — `config.py` reads/writes `%APPDATA%\windows-navigator\config.toml` using stdlib `tomllib` (read) and a plain `str.write_text` (write; `tomllib` is read-only). When settings are saved, `_on_hotkey_saved` sets the old listener's `threading.Event` stop flag, allocates a fresh event, and starts a new listener — the old thread exits within one poll interval (≤30 ms / ≤10 ms). Always create a new event rather than clearing the old one to avoid a race between `set()` and `clear()`.
+- **pystray callbacks run on a non-Tk thread** — `TrayIcon._do_settings` must use `root.after(0, ...)` to marshal `open_settings_window` to the Tk main thread. Direct Tk calls from pystray's background thread corrupt Tk state silently.
 - **`_drain_show_queue` is idempotent** — the 50 ms `poll_queue` timer is the only consumer path; double-firing is safe.
 - **Pure Python controller** — all filter/selection logic in `controller.py` with no Tk import, fully testable on Linux.
 - **`_set_query_state` is the only correct way to change badge state** — any handler modifying `_desktop_prefix_nums` must call `_set_query_state(nums, text)`, not `_update_prefix_badges` + `_on_text_changed` separately. Only `_set_query_state` reaches `controller.set_desktop_nums`, keeping badges and controller in sync.
 - **Activation before hide** — `_activate_selected` calls the activate callback BEFORE `hide()`. `_closing = True` is set first so `_on_focus_out` doesn't schedule a spurious `hide()` during the focus handoff.
 - **Focus-out / focus-in symmetry** — `_on_focus_out` cancels any existing `_pending_hide` before scheduling a new one. Without this, the SW_SHOWNORMAL flash from `deiconify()` fires a FocusOut at T≈0 and a user click fires another; the orphaned callback fires later and closes a healthy overlay.
-- **Deferred Win32 imports** — all `win32*` and `pystray` imports happen inside functions, never at module level, so the test suite runs on Linux.
+- **Deferred Win32 imports** — all `win32*` and `pystray` imports happen inside functions, never at module level, so the test suite runs on Linux. Exception: `config.py` is pure stdlib (`tomllib`, `pathlib`, `enum`) so `app.py` imports it at module level.
 - **COM initialization** — `CoInitializeEx(COINIT_APARTMENTTHREADED)` must be called before `CoCreateInstance`. Neither pywin32 nor Tkinter do this automatically.
 - **Vtable access** — COM vtable is two levels of indirection: `object → vtable_ptr → fn_ptrs`. Cast the object pointer to `POINTER(c_void_p)`, read `[0]` to get the vtable pointer, cast that to `POINTER(c_void_p)`, then index by method number.
 - **Win32 `BOOL` vs `c_bool`** — Win32 `BOOL` is `c_int` (4 bytes), not `c_bool` (1 byte). Using `c_bool` for an output `BOOL*` parameter corrupts memory.
