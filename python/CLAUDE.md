@@ -89,7 +89,7 @@ tests/
 - **Win+Alt+Space uses `RegisterHotKey` directly — no `SendInput` trick needed** — because Win+Alt+Space is registered as the actual hotkey (not a synthetic proxy), Windows delivers `WM_HOTKEY` in response to real user input, which carries the foreground-lock exemption natively. `_run_win_alt_space` uses `PeekMessageW` in a 10 ms sleep loop (not blocking `GetMessageW`) so the `threading.Event` stop flag is checked between polls and `UnregisterHotKey` runs in the `finally` block.
 - **Hotkey choice persisted in TOML, switched live** — `config.py` reads/writes `%APPDATA%\windows-navigator\config.toml` using stdlib `tomllib` (read) and a plain `str.write_text` (write; `tomllib` is read-only). When settings are saved, `_on_hotkey_saved` sets the old listener's `threading.Event` stop flag, allocates a fresh event, and starts a new listener — the old thread exits within one poll interval (≤30 ms / ≤10 ms). Always create a new event rather than clearing the old one to avoid a race between `set()` and `clear()`.
 - **pystray callbacks run on a non-Tk thread** — `TrayIcon._do_settings` must use `root.after(0, ...)` to marshal `open_settings_window` to the Tk main thread. Direct Tk calls from pystray's background thread corrupt Tk state silently.
-- **`_drain_show_queue` is idempotent** — the 50 ms `poll_queue` timer is the only consumer path; double-firing is safe.
+- **`_drain_show_queue` collapses multiple queued events into one call** — all items are drained from `show_queue` before `overlay.show()` fires once per poll cycle. Without this, two hotkey events within the same 50 ms window would call `toggle_all_expansions()` twice, cancelling each other out (no visible change).
 - **Pure Python controller** — all filter/selection logic in `controller.py` with no Tk import, fully testable on Linux.
 - **`_set_query_state` is the only correct way to change badge state** — any handler modifying `_desktop_prefix_nums` must call `_set_query_state(nums, text)`, not `_update_prefix_badges` + `_on_text_changed` separately. Only `_set_query_state` reaches `controller.set_desktop_nums`, keeping badges and controller in sync.
 - **Activation before hide** — `_activate_selected` calls the activate callback BEFORE `hide()`. `_closing = True` is set first so `_on_focus_out` doesn't schedule a spurious `hide()` during the focus handoff.
@@ -106,7 +106,7 @@ tests/
 - **Ctrl+Shift+N desktop jump** — uses Win32 `GetKeyState` instead of Tkinter keysym: Shift changes `"1"` to `"exclam"` etc., making keysym bindings unusable across keyboard layouts.
 - **Tray `_current_desktop[0]` sync** — `poll_queue` and `poll_move_queue` both write `_current_desktop[0]` after updating the tray. Without this `poll_desktop` lags and skips refreshes when the user returns to a previously-seen desktop.
 - **UIA tab activation uses index re-fetch** — `TabInfo` stores only the 0-based index, not a COM element pointer. `select_tab` re-fetches the element at activation time. This avoids STA cross-thread COM marshaling (UIA element pointers from a background STA thread cannot be used on the main Tk thread).
-- **Deferred tab expansion** — `toggle_all_expansions()` called before any tabs have been fetched sets `_want_all_expanded = True`. `set_tabs()` checks this flag and adds arriving windows to `_expanded`, so the shortcut feels immediate even though UIA fetch takes hundreds of milliseconds.
+- **Deferred tab expansion** — `toggle_all_expansions()` called before any tabs have been fetched sets `_want_all_expanded = True`. `set_tabs()` checks this flag and adds arriving windows to `_expanded`, so the shortcut feels immediate even though UIA fetch takes hundreds of milliseconds. The flag is only toggled when at least one filtered window still has pending tab data; filtering to already-loaded single-tab windows must not corrupt the flag (no visible effect → no state change). Collapse always calls `_expanded.clear()` (not `_expanded -= filtered_set`) so expansion state does not leak through the filter into a later unfiltered view.
 - **Notification detection** — two signals combined into `flashing: set[int]`: `HSHELL_FLASH` (0x8006, fired by `FlashWindowEx`) and `HSHELL_REDRAW` (6) on a background window with an unchanged title (fingerprint of `ITaskbarList3::SetOverlayIcon`). Title changes matching `^\(\d+\)` on HSHELL_REDRAW are also caught.
 
 ## Conventions
@@ -141,7 +141,7 @@ with patch.dict("sys.modules", {"winreg": mock_winreg}):
 | File | What it covers |
 |------|----------------|
 | `test_filter.py` | `filter_windows` — text match, multi-token, `desktop_nums` OR semantics |
-| `test_keyboard.py` | `OverlayController` — navigation, query, desktop badges, app filter, tab search, toggle expansions, deferred `_want_all_expanded` |
+| `test_keyboard.py` | `OverlayController` — navigation, query, desktop badges, app filter, tab search, toggle expansions, deferred `_want_all_expanded`, collapse-clears-all, flag non-corruption for single-tab filter |
 | `test_provider.py` | `IconExtractor.extract` fallback chain |
 | `test_virtual_desktop.py` | `assign_desktop_numbers` (registry order, ghost GUID → `-1`), `get_current_desktop_number` |
 | `test_tray.py` | `_make_tray_icon` pixel-level color checks |
