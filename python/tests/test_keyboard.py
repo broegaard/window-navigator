@@ -278,6 +278,38 @@ def test_controller_hash_text_matches_title():
     assert ctrl.filtered_windows == [w]
 
 
+# ---------------------------------------------------------------------------
+# set_desktop_nums with active app filter
+# ---------------------------------------------------------------------------
+
+
+def test_set_desktop_nums_clears_app_filter_when_process_no_longer_visible():
+    """App filter is auto-cleared when the new desktop badge hides all windows for that process."""
+    windows = [
+        WindowInfo(hwnd=1, title="Notepad", process_name="notepad.exe", desktop_number=1),
+        WindowInfo(hwnd=2, title="Chrome", process_name="chrome.exe", desktop_number=2),
+    ]
+    ctrl = OverlayController(windows)
+    ctrl.cycle_app_filter(1)  # select notepad
+    assert ctrl._app_filter == "notepad.exe"
+    ctrl.set_desktop_nums({2})  # notepad (desktop 1) is now hidden
+    assert ctrl._app_filter is None
+
+
+def test_set_desktop_nums_keeps_app_filter_when_process_visible_via_tab():
+    """App filter is preserved when the process is still reachable through a matching tab."""
+    ctrl = OverlayController([
+        WindowInfo(hwnd=1, title="Chrome", process_name="chrome.exe", desktop_number=1),
+    ])
+    ctrl.set_tabs(1, _make_tabs(1, "Gmail - Inbox", "GitHub"))
+    ctrl._expanded.add(1)
+    ctrl.cycle_app_filter(1)    # select chrome.exe (Chrome visible by title, no query yet)
+    assert ctrl._app_filter == "chrome.exe"
+    ctrl.set_query("inbox")     # title no longer matches; chrome survives via tab match
+    assert ctrl._app_filter == "chrome.exe"  # set_query kept it via tab path
+    ctrl.set_desktop_nums({1})  # chrome is on desktop 1 — _tab_query_matches still finds it
+    assert ctrl._app_filter == "chrome.exe"
+
 
 # ---------------------------------------------------------------------------
 # app_icons — strip source
