@@ -114,7 +114,8 @@ def test_assign_numbers_are_one_based():
 
 def test_assign_current_desktop_flag():
     mgr = _make_manager({1: "guid-A", 2: "guid-B"}, current_hwnds={1})
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr):
+    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
+         patch("windows_navigator.virtual_desktop.get_current_desktop_guid", return_value="guid-A"):
         _, cur = assign_desktop_numbers([1, 2])
     assert cur[1] is True
     assert cur[2] is False

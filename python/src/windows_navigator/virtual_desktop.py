@@ -346,6 +346,9 @@ def assign_desktop_numbers(hwnds: list[int]) -> tuple[dict[int, int], dict[int, 
             {g: i + 1 for i, g in enumerate(ordered_guids)} if ordered_guids else {}
         )
 
+        # Read the current desktop GUID once — avoids one COM call per window.
+        current_guid = get_current_desktop_guid()
+
         numbers: dict[int, int] = {}
         is_current: dict[int, bool] = {}
         for hwnd in hwnds:
@@ -363,7 +366,7 @@ def assign_desktop_numbers(hwnds: list[int]) -> tuple[dict[int, int], dict[int, 
                         continue
                     guid_to_number[guid] = len(guid_to_number) + 1
                 numbers[hwnd] = guid_to_number[guid]
-                is_current[hwnd] = bool(manager.IsWindowOnCurrentVirtualDesktop(hwnd))
+                is_current[hwnd] = (guid == current_guid) if current_guid is not None else True
             except Exception:
                 numbers[hwnd] = 0
                 is_current[hwnd] = True
