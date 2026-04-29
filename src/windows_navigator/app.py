@@ -393,12 +393,12 @@ def _start_tab_cache_warmer() -> None:
     threading.Thread(target=_run, daemon=True, name="tab-cache-warmer").start()
 
 
-def _start_hotkey_listener(
-    show_queue: queue.Queue[int],
-    choice: HotkeyChoice,
-    stop_event: threading.Event,
-) -> None:
-    """Start the overlay hotkey listener thread for the given hotkey choice."""
+def _hotkey_listener_config(choice: HotkeyChoice) -> tuple[object, dict[str, int]]:
+    """Return (target_function, kwargs) for the given hotkey choice.
+
+    Pure function — no side effects. Extracted so the dispatch logic can be
+    tested without spawning threads or touching Win32 APIs.
+    """
     VK_LCONTROL = 0xA2
     VK_RCONTROL = 0xA3
     VK_LSHIFT = 0xA0
@@ -411,35 +411,40 @@ def _start_hotkey_listener(
     VK_SPACE = 0x20
 
     if choice == HotkeyChoice.WIN_ALT_SPACE:
-        target = _run_registered_hotkey
-        kwargs: dict[str, int] = {
+        return _run_registered_hotkey, {
             "hotkey_id": _HOTKEY_ID_WIN_ALT_SPACE,
             "modifiers": MOD_WIN | MOD_ALT | MOD_NOREPEAT,
             "vk": VK_SPACE,
         }
-    elif choice == HotkeyChoice.CTRL_SHIFT_SPACE:
-        target = _run_registered_hotkey
-        kwargs = {
+    if choice == HotkeyChoice.CTRL_SHIFT_SPACE:
+        return _run_registered_hotkey, {
             "hotkey_id": _HOTKEY_ID_CTRL_SHIFT_SPACE,
             "modifiers": MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
             "vk": VK_SPACE,
         }
-    elif choice == HotkeyChoice.CTRL_DOUBLE_TAP_SHIFT:
-        target = _polling_double_tap_listener
-        kwargs = {
+    if choice == HotkeyChoice.CTRL_DOUBLE_TAP_SHIFT:
+        return _polling_double_tap_listener, {
             "hotkey_id": _HOTKEY_ID_DOUBLE_TAP_SHIFT,
             "tap_vk_l": VK_LSHIFT,
             "tap_vk_r": VK_RSHIFT,
             "guard_vk_l": VK_LCONTROL,
             "guard_vk_r": VK_RCONTROL,
         }
-    else:
-        target = _polling_double_tap_listener
-        kwargs = {
-            "hotkey_id": _HOTKEY_ID_DOUBLE_TAP_CTRL,
-            "tap_vk_l": VK_LCONTROL,
-            "tap_vk_r": VK_RCONTROL,
-        }
+    # Default: DOUBLE_TAP_CTRL
+    return _polling_double_tap_listener, {
+        "hotkey_id": _HOTKEY_ID_DOUBLE_TAP_CTRL,
+        "tap_vk_l": VK_LCONTROL,
+        "tap_vk_r": VK_RCONTROL,
+    }
+
+
+def _start_hotkey_listener(
+    show_queue: queue.Queue[int],
+    choice: HotkeyChoice,
+    stop_event: threading.Event,
+) -> None:
+    """Start the overlay hotkey listener thread for the given hotkey choice."""
+    target, kwargs = _hotkey_listener_config(choice)
     threading.Thread(
         target=target, args=(show_queue, stop_event), kwargs=kwargs,
         daemon=True, name="hotkey-listener",
@@ -486,6 +491,45 @@ def _start_move_hotkey_listener(move_queue: queue.Queue[tuple[int, int]]) -> Non
             _log.exception("move-hotkey-listener thread crashed")
 
     threading.Thread(target=_run, daemon=True, name="move-hotkey-listener").start()
+
+
+def _process_show_queue(
+    show_queue: "queue.Queue[int]",
+    provider: object,
+    overlay: object,
+    tray: object,
+    current_desktop: list[int],
+) -> None:
+    """Drain *show_queue* and show the overlay once if any items were pending.
+
+    Drains all queued items but processes only once — multiple queued hotkey
+    events within one poll cycle would otherwise call overlay.show() N times,
+    causing an even number of toggles to cancel each other.
+
+    *current_desktop* is a one-element list used as a mutable reference so
+    the caller's tracking variable is updated after a successful enumeration.
+    Only updated when a valid desktop number (> 0) is found.
+    """
+    has_items = False
+    try:
+        while True:
+            show_queue.get_nowait()
+            has_items = True
+    except queue.Empty:
+        pass
+    if not has_items:
+        return
+    t0 = time.monotonic()
+    windows = provider.get_windows()  # type: ignore[union-attr]
+    fetch_ms = (time.monotonic() - t0) * 1000.0
+    desktop = next(
+        (w.desktop_number for w in windows if w.is_current_desktop and w.desktop_number > 0),
+        0,
+    )
+    overlay.show(windows, initial_desktop=desktop, fetch_ms=fetch_ms)  # type: ignore[union-attr]
+    tray.update(desktop)  # type: ignore[union-attr]
+    if desktop > 0:
+        current_desktop[0] = desktop
 
 
 def main() -> None:
@@ -537,33 +581,7 @@ def main() -> None:
     _start_move_hotkey_listener(move_queue)
 
     def _drain_show_queue() -> None:
-        # Drain all queued items but process only once — multiple queued hotkey events
-        # within one poll cycle would otherwise call overlay.show() (toggle) N times,
-        # causing an even number of toggles to cancel each other ("nothing changes").
-        has_items = False
-        try:
-            while True:
-                show_queue.get_nowait()
-                has_items = True
-        except queue.Empty:
-            pass
-        if not has_items:
-            return
-        t0 = time.monotonic()
-        windows = provider.get_windows()
-        fetch_ms = (time.monotonic() - t0) * 1000.0
-        current_desktop = next(
-            (
-                w.desktop_number
-                for w in windows
-                if w.is_current_desktop and w.desktop_number > 0
-            ),
-            0,
-        )
-        overlay.show(windows, initial_desktop=current_desktop, fetch_ms=fetch_ms)
-        tray.update(current_desktop)
-        if current_desktop > 0:
-            _current_desktop[0] = current_desktop
+        _process_show_queue(show_queue, provider, overlay, tray, _current_desktop)
 
     def poll_queue() -> None:
         _drain_show_queue()
