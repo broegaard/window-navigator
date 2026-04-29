@@ -49,7 +49,7 @@ def _load_tab_domain_cache() -> None:
                         break
     except FileNotFoundError:
         pass
-    except Exception:
+    except (ValueError, OSError):
         pass
 
 
@@ -60,7 +60,7 @@ def _save_tab_domain_cache() -> None:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(dict(_tab_domain_cache), ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, path)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -91,7 +91,7 @@ def _domain_from_url(url: str) -> str:
             # Strip any path/port/query — keep only the hostname part
             host = url.split("/")[0].split(":")[0].lower()
         return host if "." in host and " " not in host else ""
-    except Exception:
+    except (ValueError, AttributeError):
         return ""
 
 
