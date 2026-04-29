@@ -7,13 +7,6 @@ import tkinter as tk
 from typing import TYPE_CHECKING, Callable
 
 try:
-    import darkdetect
-
-    _DARK = darkdetect.isDark() or False
-except Exception:
-    _DARK = False
-
-try:
     from PIL import ImageTk
 
     _HAS_PIL = True
@@ -23,6 +16,7 @@ except ImportError:
 from windows_navigator.activation import _force_foreground, _get_cursor_monitor_workarea
 from windows_navigator.controller import OverlayController, OverlayControllerProtocol
 from windows_navigator.models import TabInfo, WindowInfo
+from windows_navigator.overlay_layout import _colors
 from windows_navigator.theme import desktop_badge_color as _desktop_badge_color
 
 if TYPE_CHECKING:
@@ -106,40 +100,6 @@ def init_scale(scale: float) -> None:
     _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
     _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
     _COUNT_BAR_H = s(18)
-
-# ---------------------------------------------------------------------------
-# Colour palettes
-# ---------------------------------------------------------------------------
-
-_PALETTE: dict[str, dict[str, str]] = {
-    "dark": {
-        "bg": "#1e1e2e",
-        "row_bg": "#1e1e2e",
-        "tab_bg": "#252538",  # slightly lighter/bluer than row_bg
-        "row_sel": "#3d405b",
-        "title_fg": "#cdd6f4",
-        "proc_fg": "#a6adc8",
-        "entry_bg": "#313244",
-        "entry_fg": "#cdd6f4",
-        "border": "#45475a",
-    },
-    "light": {
-        "bg": "#f5f5f5",
-        "row_bg": "#f5f5f5",
-        "tab_bg": "#ebebf2",  # slightly darker/cooler than row_bg
-        "row_sel": "#c8d0e7",
-        "title_fg": "#1e1e2e",
-        "proc_fg": "#4c4f69",
-        "entry_bg": "#ffffff",
-        "entry_fg": "#1e1e2e",
-        "border": "#bcc0cc",
-    },
-}
-
-
-def _colors() -> dict[str, str]:
-    return _PALETTE["dark"] if _DARK else _PALETTE["light"]
-
 
 def _row_height(item: WindowInfo | TabInfo) -> int:
     return _TAB_ROW_HEIGHT if isinstance(item, TabInfo) else _ROW_HEIGHT
