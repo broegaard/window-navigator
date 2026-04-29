@@ -25,3 +25,5 @@ class TabInfo:
     name: str
     hwnd: int   # parent window hwnd
     index: int  # 0-based position in parent's TabItem list; used to re-fetch on select
+    domain: str = ""
+    icon: Image | None = field(default=None, repr=False)

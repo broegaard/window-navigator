@@ -285,6 +285,114 @@ def _run_registered_hotkey(
         _log.exception("registered-hotkey-listener thread crashed")
 
 
+_BROWSER_PROC_NAMES = frozenset({
+    "chrome.exe", "msedge.exe", "firefox.exe",
+    "brave.exe", "opera.exe", "vivaldi.exe",
+})
+
+
+def _start_tab_cache_warmer() -> None:
+    """Warm the tab domain cache whenever a browser window gains focus.
+
+    Registers a shell hook window; on HSHELL_WINDOWACTIVATED for any browser
+    process, calls fetch_tabs() on a short-lived daemon thread so inactive
+    Firefox tabs accumulate domains in _tab_domain_cache between overlay opens.
+    """
+
+    def _run() -> None:
+        try:
+            import ctypes
+            import ctypes.wintypes as wt
+
+            u32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+
+            WNDPROC = ctypes.WINFUNCTYPE(
+                ctypes.c_ssize_t, wt.HWND, wt.UINT, ctypes.c_size_t, ctypes.c_ssize_t
+            )
+            u32.DefWindowProcW.restype = ctypes.c_ssize_t
+            u32.DefWindowProcW.argtypes = [wt.HWND, wt.UINT, ctypes.c_size_t, ctypes.c_ssize_t]
+            _proc = WNDPROC(lambda h, m, w, lp: u32.DefWindowProcW(h, m, w, lp))
+
+            class _WNDCLS(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", wt.UINT), ("style", wt.UINT),
+                    ("lpfnWndProc", WNDPROC), ("cbClsExtra", ctypes.c_int),
+                    ("cbWndExtra", ctypes.c_int), ("hInstance", wt.HINSTANCE),
+                    ("hIcon", wt.HICON), ("hCursor", wt.HANDLE),
+                    ("hbrBackground", wt.HBRUSH), ("lpszMenuName", wt.LPCWSTR),
+                    ("lpszClassName", wt.LPCWSTR), ("hIconSm", wt.HICON),
+                ]
+
+            wc = _WNDCLS()
+            wc.cbSize = ctypes.sizeof(_WNDCLS)
+            wc.lpfnWndProc = _proc
+            wc.lpszClassName = "WinNavTabWarmer"
+            u32.RegisterClassExW(ctypes.byref(wc))
+
+            hook_hwnd = u32.CreateWindowExW(
+                0, "WinNavTabWarmer", None, 0, 0, 0, 0, 0,
+                ctypes.c_size_t(-3), None, None, None,
+            )
+            if not hook_hwnd:
+                return
+
+            WM_SHELL = u32.RegisterWindowMessageW("SHELLHOOK")
+            u32.RegisterShellHookWindow(hook_hwnd)
+
+            HSHELL_ACTIVATED = 4
+            HSHELL_RUDEACTIVATED = 0x8004
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+            def _proc_name(hwnd: int) -> str:
+                try:
+                    pid = wt.DWORD()
+                    u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+                    if not h:
+                        return ""
+                    try:
+                        buf = ctypes.create_unicode_buffer(512)
+                        size = wt.DWORD(512)
+                        k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size))
+                        return buf.value.split("\\")[-1].lower()
+                    finally:
+                        k32.CloseHandle(h)
+                except Exception:
+                    return ""
+
+            _active: set[int] = set()
+
+            def _warm(target: int) -> None:
+                try:
+                    import ctypes as _ct
+                    _ct.windll.ole32.CoInitializeEx(None, 0)  # type: ignore[attr-defined]
+                    from windows_navigator.tabs import fetch_tabs
+                    fetch_tabs(target)
+                except Exception:
+                    pass
+                finally:
+                    _active.discard(target)
+
+            msg = wt.MSG()
+            while u32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+                if msg.message == WM_SHELL and msg.wParam in (HSHELL_ACTIVATED, HSHELL_RUDEACTIVATED):
+                    target = int(msg.lParam)
+                    if target not in _active and _proc_name(target) in _BROWSER_PROC_NAMES:
+                        _active.add(target)
+                        threading.Thread(
+                            target=_warm, args=(target,), daemon=True, name="tab-warmer",
+                        ).start()
+                u32.DispatchMessageW(ctypes.byref(msg))
+
+            u32.DeregisterShellHookWindow(hook_hwnd)
+            u32.DestroyWindow(hook_hwnd)
+        except Exception:
+            _log.exception("tab-cache-warmer thread crashed")
+
+    threading.Thread(target=_run, daemon=True, name="tab-cache-warmer").start()
+
+
 def _start_hotkey_listener(
     show_queue: queue.Queue[int],
     choice: HotkeyChoice,
@@ -419,6 +527,7 @@ def main() -> None:
 
     flashing: set[int] = set()
     _start_flash_monitor(flashing)
+    _start_tab_cache_warmer()
 
     provider = RealWindowProvider(flashing=flashing)
     overlay = NavigatorOverlay(root, on_activate=activate_window, on_move=move_and_activate)

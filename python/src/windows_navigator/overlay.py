@@ -36,6 +36,7 @@ _MAX_ROWS_VISIBLE = 10
 _ROW_HEIGHT = 44
 _TAB_ROW_HEIGHT = 28  # leaf (tab) rows are slimmer than window rows
 _ICON_SIZE = 32       # icon images are always 32 × 32 px; not scaled
+_TAB_ICON_SIZE = 16   # favicons for tab rows
 _ICON_PAD_X = 8
 _ICON_PAD_Y = (_ROW_HEIGHT - _ICON_SIZE) // 2
 _BADGE_W = 22  # desktop number badge — square, same height as width
@@ -398,6 +399,21 @@ class NavigatorOverlay:
             if isinstance(item, TabInfo):
                 row_bg = c["row_sel"] if i == sel else c["tab_bg"]
                 self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="", tags=(f"row_bg_{i}",))
+                if _HAS_PIL and item.icon is not None:
+                    try:
+                        icon_id = id(item.icon)
+                        photo = self._photo_image_cache.get(icon_id)
+                        if photo is None:
+                            photo = ImageTk.PhotoImage(item.icon)
+                            self._photo_image_cache[icon_id] = photo
+                        self._canvas.create_image(
+                            _ICON_PAD_X,
+                            y0 + (rh - _TAB_ICON_SIZE) // 2,
+                            anchor="nw",
+                            image=photo,
+                        )
+                    except Exception:
+                        pass
                 self._canvas.create_text(
                     _TEXT_X,
                     y0 + rh // 2,
@@ -659,6 +675,18 @@ class NavigatorOverlay:
                 t = threading.Thread(target=_do, daemon=True)
                 t.start()
                 t.join(timeout=_TAB_FETCH_TIMEOUT)
+                if cancel.is_set():
+                    break
+                if result:
+                    try:
+                        from windows_navigator.favicons import fetch_favicon
+                        for tab in result:
+                            if cancel.is_set():
+                                break
+                            if tab.domain:
+                                tab.icon = fetch_favicon(tab.domain)
+                    except Exception:
+                        pass
                 if cancel.is_set():
                     break
                 if result and self._controller is not None:
