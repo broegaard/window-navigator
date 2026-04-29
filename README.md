@@ -55,20 +55,6 @@ Runs as a system tray application. The tray icon shows the current virtual deskt
 
 ## Setup
 
-### Go binary (recommended)
-
-Build a single self-contained `.exe` — no Python or dependencies required:
-
-```bash
-# cross-compile from Linux/macOS:
-cd go
-GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui" -o windows-navigator.exe .
-```
-
-Copy `windows-navigator.exe` to Windows and run it directly.
-
-### Python (development / legacy)
-
 **Windows** (required for the full tool):
 ```powershell
 py -m pip install -e ".[windows,dev]"
@@ -87,13 +73,9 @@ pip install -e ".[dev]"
 ## Development
 
 ```bash
-# Python
 make test      # pytest
 make lint      # ruff check .
 make format    # ruff format .
-
-# Go
-cd go && go test ./internal/navigator/
 ```
 
-Run a single Python test file: `pytest tests/test_filter.py`
+Run a single test file: `pytest tests/test_filter.py`
