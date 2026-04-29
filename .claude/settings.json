@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=$(jq -r '.tool_input.file_path // empty') && echo \"$f\" | grep -qE '\\.py$' || exit 0; export PATH=/home/kgs/projects/windows-navigator/.venv/bin:$PATH; make -C /home/kgs/projects/windows-navigator lint; make -C /home/kgs/projects/windows-navigator test; true",
+            "command": "f=$(jq -r '.tool_input.file_path // empty') && echo \"$f\" | grep -qE '\\.py$' || exit 0; ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo \"$PWD\"); export PATH=\"$ROOT/python/.venv/bin:$PATH\"; make -C \"$ROOT/python\" lint; make -C \"$ROOT/python\" test; true",
             "timeout": 120,
             "statusMessage": "Linting and testing..."
           }
