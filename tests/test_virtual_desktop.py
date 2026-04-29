@@ -807,3 +807,54 @@ def test_raw_vdmanager_move_to_desktop_returns_false_on_nonzero_hr():
     with patch.object(mgr, "_vtable_call", return_value=1), \
             patch.object(ctypes, "HRESULT", MagicMock(), create=True):
         assert mgr.MoveWindowToDesktop(42, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is False
+
+
+# ---------------------------------------------------------------------------
+# New tests: gaps identified during code review
+# ---------------------------------------------------------------------------
+
+
+def test_get_current_desktop_number_returns_zero_on_registry_oserror():
+    """If QueryValueEx raises OSError (e.g. key missing), return 0 gracefully."""
+    mock_winreg = MagicMock()
+    mock_winreg.QueryValueEx.side_effect = OSError("access denied")
+
+    with patch.dict("sys.modules", {"winreg": mock_winreg}):
+        result = get_current_desktop_number()
+
+    assert result == 0
+
+
+def test_move_window_pyvda_raises_then_fallback_com_succeeds():
+    """pyvda importable but AppView.move() raises → fallback COM manager succeeds."""
+    target_guid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    moved: list[tuple[int, str]] = []
+
+    class _MockManager:
+        def MoveWindowToDesktop(self, hwnd: int, guid: str) -> bool:
+            moved.append((hwnd, guid))
+            return True
+
+    mock_pyvda = MagicMock()
+    mock_pyvda.AppView.return_value.move.side_effect = OSError("cross-process restriction")
+
+    with patch.dict("sys.modules", {"pyvda": mock_pyvda}), \
+         patch("windows_navigator.virtual_desktop._get_manager", return_value=_MockManager()), \
+         patch("windows_navigator.virtual_desktop.get_current_desktop_guid",
+               return_value=target_guid):
+        result = move_window_to_current_desktop(77)
+
+    assert result is True
+    assert moved == [(77, target_guid)]
+
+
+def test_manager_cache_returns_none_when_both_paths_fail():
+    """When comtypes is unavailable and _try_raw_ctypes() also returns None, result is None."""
+    from windows_navigator.virtual_desktop import _ManagerCache
+
+    with patch("windows_navigator.virtual_desktop._try_raw_ctypes", return_value=None):
+        cache = _ManagerCache()
+        result = cache.get()
+
+    assert result is None
+    assert cache._attempted is True
