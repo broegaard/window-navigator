@@ -686,12 +686,13 @@ class NavigatorOverlay:
                                 break
                             if tab.domain:
                                 tab.icon = fetch_favicon(tab.domain)
-                            elif _is_wt:
-                                try:
-                                    from windows_navigator.wt_icons import fetch_wt_tab_icon
-                                    tab.icon = fetch_wt_tab_icon(tab.name)
-                                except Exception:
-                                    pass
+                            else:
+                                if _is_wt:
+                                    try:
+                                        from windows_navigator.wt_icons import fetch_wt_tab_icon
+                                        tab.icon = fetch_wt_tab_icon(tab.name)
+                                    except Exception:
+                                        pass
                                 if tab.icon is None and w.icon is not None:
                                     try:
                                         from PIL import Image as _PILImage
@@ -700,14 +701,6 @@ class NavigatorOverlay:
                                         )
                                     except Exception:
                                         pass
-                            elif w.icon is not None:
-                                try:
-                                    from PIL import Image as _PILImage
-                                    tab.icon = w.icon.resize(
-                                        (_TAB_ICON_SIZE, _TAB_ICON_SIZE), _PILImage.LANCZOS
-                                    )
-                                except Exception:
-                                    pass
                     except Exception:
                         pass
                 if cancel.is_set():

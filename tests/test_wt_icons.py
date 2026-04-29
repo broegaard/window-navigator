@@ -358,16 +358,14 @@ def test_get_profile_map_rebuilds_on_mtime_change(tmp_path):
         patch("windows_navigator.wt_icons._icon_from_exe", return_value=first_img),
     ):
         # Reset module-level cache state
-        _wt_mod._profile_map = None
-        _wt_mod._settings_mtime = 0.0
-        _wt_mod._settings_file = None
-        _wt_mod._settings_file_checked = False
+        _wt_mod._profile_cache = None
+        _wt_mod._settings_file = _wt_mod._UNSET
 
         map1 = _wt_mod._get_profile_map()
         assert map1["shell"] is first_img
 
-        # Simulate mtime change by manually bumping the cached mtime
-        _wt_mod._settings_mtime = _wt_mod._settings_mtime - 1.0
+        # Simulate mtime change by bumping the cached mtime
+        _wt_mod._profile_cache = (_wt_mod._profile_cache[0] - 1.0, _wt_mod._profile_cache[1])
 
         with patch("windows_navigator.wt_icons._icon_from_exe", return_value=second_img):
             map2 = _wt_mod._get_profile_map()
@@ -376,9 +374,8 @@ def test_get_profile_map_rebuilds_on_mtime_change(tmp_path):
 
 
 def test_get_profile_map_returns_empty_when_no_settings():
-    _wt_mod._profile_map = None
-    _wt_mod._settings_file = None
-    _wt_mod._settings_file_checked = False
+    _wt_mod._profile_cache = None
+    _wt_mod._settings_file = _wt_mod._UNSET
 
     with patch("windows_navigator.wt_icons._find_settings", return_value=None):
         result = _wt_mod._get_profile_map()

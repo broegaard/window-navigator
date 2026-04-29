@@ -23,11 +23,10 @@ _WT_SOURCE_EXE: dict[str, str] = {
     "Windows.Terminal.Azure": "",
 }
 
-# Module-level mtime-keyed cache so settings changes are picked up automatically.
-_profile_map: dict[str, Image | None] | None = None
-_settings_mtime: float = 0.0
-_settings_file: Path | None = None
-_settings_file_checked: bool = False
+# Module-level mtime-keyed cache; _UNSET marks the settings path as not yet searched.
+_UNSET: object = object()
+_settings_file: Path | None | object = _UNSET
+_profile_cache: tuple[float, dict[str, Image | None]] | None = None  # (mtime, map)
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +219,8 @@ def _exe_from_commandline(cmdline: str) -> str:
     if cmdline.startswith('"'):
         end = cmdline.find('"', 1)
         return cmdline[1:end] if end > 0 else cmdline[1:]
-    return cmdline.split()[0] if cmdline.split() else ""
+    parts = cmdline.split()
+    return parts[0] if parts else ""
 
 
 def _build_profile_map(settings_path: Path) -> dict[str, Image | None]:
@@ -253,27 +253,25 @@ def _build_profile_map(settings_path: Path) -> dict[str, Image | None]:
 
 def _get_profile_map() -> dict[str, Image | None]:
     """Return the profile map, rebuilding it when the settings file mtime changes."""
-    global _profile_map, _settings_mtime, _settings_file, _settings_file_checked
+    global _settings_file, _profile_cache
 
-    if not _settings_file_checked:
+    if _settings_file is _UNSET:
         _settings_file = _find_settings()
-        _settings_file_checked = True
 
-    path = _settings_file
-    if path is None:
+    if _settings_file is None:
         return {}
 
     try:
-        mtime = path.stat().st_mtime
+        mtime = _settings_file.stat().st_mtime
     except OSError:
         return {}
 
-    if _profile_map is not None and mtime == _settings_mtime:
-        return _profile_map
+    if _profile_cache is not None and _profile_cache[0] == mtime:
+        return _profile_cache[1]
 
-    _profile_map = _build_profile_map(path)
-    _settings_mtime = mtime
-    return _profile_map
+    profile_map = _build_profile_map(_settings_file)
+    _profile_cache = (mtime, profile_map)
+    return profile_map
 
 
 # ---------------------------------------------------------------------------
