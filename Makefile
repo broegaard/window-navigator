@@ -1,9 +1,12 @@
 PYTHON := .venv/bin/python
 
-.PHONY: lint format test
+.PHONY: lint lint-fix format test
 
 lint:
 	$(PYTHON) -m ruff check .
+
+lint-fix:
+	$(PYTHON) -m ruff check --fix .
 
 format:
 	$(PYTHON) -m ruff format .
