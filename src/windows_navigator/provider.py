@@ -50,6 +50,7 @@ class _SHFILEINFO(ctypes.Structure):
         ("szTypeName", ctypes.c_wchar * 80),
     ]
 
+
 DesktopAssigner = Callable[[list[int]], tuple[dict[int, int], dict[int, bool]]]
 
 
@@ -91,10 +92,22 @@ def _shell_imagelist_icon(exe_path: str) -> int:
         # IID_IImageList = {46EB5926-582E-4017-9FDF-E8998DAA0950}
         # Bytes in memory: Data1 LE, Data2 LE, Data3 LE, Data4 as-is
         iid = (ctypes.c_byte * 16)(
-            0x26, 0x59, 0xEB, 0x46,
-            0x2E, 0x58,
-            0x17, 0x40,
-            0x9F, 0xDF, 0xE8, 0x99, 0x8D, 0xAA, 0x09, 0x50,
+            0x26,
+            0x59,
+            0xEB,
+            0x46,
+            0x2E,
+            0x58,
+            0x17,
+            0x40,
+            0x9F,
+            0xDF,
+            0xE8,
+            0x99,
+            0x8D,
+            0xAA,
+            0x09,
+            0x50,
         )
         SHIL_JUMBO = 4
         himl = ctypes.c_void_p()
@@ -143,7 +156,9 @@ class IconExtractor:
             if not exe_path:
                 try:
                     _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                    proc = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+                    proc = win32api.OpenProcess(
+                        win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+                    )
                     exe_path = _query_exe_path(proc)
                     win32api.CloseHandle(proc)
                 except Exception:
@@ -174,7 +189,11 @@ class IconExtractor:
                 SHGFI_LARGEICON = 0x0
                 shfi = _SHFILEINFO()
                 if ctypes.windll.shell32.SHGetFileInfoW(
-                    exe_path, 0, ctypes.byref(shfi), ctypes.sizeof(shfi), SHGFI_ICON | SHGFI_LARGEICON
+                    exe_path,
+                    0,
+                    ctypes.byref(shfi),
+                    ctypes.sizeof(shfi),
+                    SHGFI_ICON | SHGFI_LARGEICON,
                 ):
                     icon_handle = int(shfi.hIcon)
                     owned_icon = True
@@ -254,6 +273,7 @@ class RealWindowProvider:
     ) -> None:
         if assign_desktops is None:
             from windows_navigator.virtual_desktop import assign_desktop_numbers
+
             assign_desktops = assign_desktop_numbers
         self._assign_desktops = assign_desktops
         self._flashing: set[int] = flashing if flashing is not None else set()
@@ -372,6 +392,7 @@ class BackgroundWindowCache:
         # Initialise COM for this thread so GetWindowDesktopId calls are apartment-safe.
         try:
             import ctypes as _ct
+
             _ct.windll.ole32.CoInitializeEx(None, 0x2)  # type: ignore[attr-defined]
         except Exception:
             pass

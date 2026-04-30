@@ -1,4 +1,5 @@
 """UIA tab discovery and activation — deferred Windows-only imports."""
+
 from __future__ import annotations
 
 import json
@@ -11,19 +12,19 @@ from urllib.parse import urlparse
 
 from windows_navigator.models import TabInfo
 
-_UIA_TabItemControlTypeId             = 50019
-_UIA_DocumentControlTypeId            = 50030  # rendered web-page content — stop here
-_UIA_EditControlTypeId                = 50004
-_UIA_ControlTypePropertyId            = 30003
-_UIA_NamePropertyId                   = 30005
-_UIA_AutomationIdPropertyId           = 30011
-_UIA_ClassNamePropertyId              = 30012
-_UIA_FullDescriptionPropertyId        = 30159  # Edge/Chrome expose the domain here
-_UIA_ValueValuePropertyId             = 30045
+_UIA_TabItemControlTypeId = 50019
+_UIA_DocumentControlTypeId = 50030  # rendered web-page content — stop here
+_UIA_EditControlTypeId = 50004
+_UIA_ControlTypePropertyId = 30003
+_UIA_NamePropertyId = 30005
+_UIA_AutomationIdPropertyId = 30011
+_UIA_ClassNamePropertyId = 30012
+_UIA_FullDescriptionPropertyId = 30159  # Edge/Chrome expose the domain here
+_UIA_ValueValuePropertyId = 30045
 _UIA_SelectionItemIsSelectedPropertyId = 30079
 _UIA_LegacyIAccessibleStatePropertyId = 30056  # MSAA state bitmask; bit 0x2 = selected
-_UIA_LegacyIAccessiblePatternId       = 10018
-_UIA_SelectionItemPatternId           = 10010
+_UIA_LegacyIAccessiblePatternId = 10018
+_UIA_SelectionItemPatternId = 10010
 _STATE_SYSTEM_SELECTED = 0x2
 _TreeScope_Children = 2
 _MAX_UIA_DEPTH = 10
@@ -106,7 +107,9 @@ def _find_address_bar_url(element, uia, depth: int = 0) -> str:
         if ct == _UIA_DocumentControlTypeId:
             return ""
         if ct == _UIA_EditControlTypeId:
-            auto_id = str(element.GetCurrentPropertyValue(_UIA_AutomationIdPropertyId) or "").lower()
+            auto_id = str(
+                element.GetCurrentPropertyValue(_UIA_AutomationIdPropertyId) or ""
+            ).lower()
             cls = str(element.GetCurrentPropertyValue(_UIA_ClassNamePropertyId) or "").lower()
             if any(k in auto_id or k in cls for k in _ADDRESS_BAR_KEYWORDS):
                 val = str(element.GetCurrentPropertyValue(_UIA_ValueValuePropertyId) or "")
@@ -219,7 +222,11 @@ def fetch_tabs(hwnd: int) -> list[TabInfo]:
                 raw_domain = el.GetCurrentPropertyValue(_UIA_FullDescriptionPropertyId)
                 domain = _domain_from_full_description(raw_domain)
                 is_active = _is_tab_selected(el)
-                result.append(TabInfo(name=str(name), hwnd=hwnd, index=idx, domain=domain, is_active=is_active))
+                result.append(
+                    TabInfo(
+                        name=str(name), hwnd=hwnd, index=idx, domain=domain, is_active=is_active
+                    )
+                )
                 result_elements.append(el)
             except Exception:
                 pass

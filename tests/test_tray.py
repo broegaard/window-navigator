@@ -66,8 +66,10 @@ def test_load_font_falls_back_to_load_default():
     _font_cache.pop(size, None)
     try:
         mock_font = MagicMock()
-        with patch.object(ImageFont, "truetype", side_effect=OSError("not found")), \
-                patch.object(ImageFont, "load_default", return_value=mock_font):
+        with (
+            patch.object(ImageFont, "truetype", side_effect=OSError("not found")),
+            patch.object(ImageFont, "load_default", return_value=mock_font),
+        ):
             result = _load_font(size)
         assert result is mock_font
         assert _font_cache[size] is mock_font
@@ -83,8 +85,10 @@ def test_load_font_returns_none_when_all_fail():
     size = 779
     _font_cache.pop(size, None)
     try:
-        with patch.object(ImageFont, "truetype", side_effect=OSError("not found")), \
-                patch.object(ImageFont, "load_default", side_effect=OSError("not found")):
+        with (
+            patch.object(ImageFont, "truetype", side_effect=OSError("not found")),
+            patch.object(ImageFont, "load_default", side_effect=OSError("not found")),
+        ):
             result = _load_font(size)
         assert result is None
         assert _font_cache[size] is None

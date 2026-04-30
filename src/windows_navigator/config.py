@@ -1,4 +1,5 @@
 """User configuration stored in a TOML file."""
+
 from __future__ import annotations
 
 import logging
@@ -47,7 +48,9 @@ def _save_raw(data: dict) -> None:
         elif isinstance(value, str):
             lines.append(f'{key} = "{value}"\n')
         else:
-            log.warning("Skipping unsupported config key %r with type %s", key, type(value).__name__)
+            log.warning(
+                "Skipping unsupported config key %r with type %s", key, type(value).__name__
+            )
     path.write_text("".join(lines), encoding="utf-8")
 
 

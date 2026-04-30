@@ -21,8 +21,15 @@ def test_palette_variants_have_identical_key_sets():
 
 def test_palette_contains_required_keys():
     required = {
-        "bg", "row_bg", "tab_bg", "row_sel",
-        "title_fg", "proc_fg", "entry_bg", "entry_fg", "border",
+        "bg",
+        "row_bg",
+        "tab_bg",
+        "row_sel",
+        "title_fg",
+        "proc_fg",
+        "entry_bg",
+        "entry_fg",
+        "border",
     }
     assert required <= set(_PALETTE["dark"].keys())
 
@@ -45,8 +52,17 @@ def test_palette_dark_and_light_differ():
 
 def test_colors_returns_dict_with_all_required_keys():
     colors = _colors()
-    for key in ("bg", "row_bg", "tab_bg", "row_sel", "title_fg", "proc_fg",
-                "entry_bg", "entry_fg", "border"):
+    for key in (
+        "bg",
+        "row_bg",
+        "tab_bg",
+        "row_sel",
+        "title_fg",
+        "proc_fg",
+        "entry_bg",
+        "entry_fg",
+        "border",
+    ):
         assert key in colors
 
 

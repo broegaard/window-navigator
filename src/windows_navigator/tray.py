@@ -42,9 +42,14 @@ def _load_font(size: int) -> object | None:
     if size in _font_cache:
         return _font_cache[size]
     from PIL import ImageFont
+
     for name in (
-        "arialbd.ttf", "Arial Bold.ttf", "DejaVuSans-Bold.ttf",
-        "arial.ttf", "Arial.ttf", "DejaVuSans.ttf",
+        "arialbd.ttf",
+        "Arial Bold.ttf",
+        "DejaVuSans-Bold.ttf",
+        "arial.ttf",
+        "Arial.ttf",
+        "DejaVuSans.ttf",
     ):
         try:
             font = ImageFont.truetype(name, size)

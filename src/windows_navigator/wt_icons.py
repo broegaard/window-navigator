@@ -4,6 +4,7 @@ Reads the first Windows Terminal settings.json found (stable → preview → unp
 builds a case-folded profile-name → 16×16 PIL image map, and caches it until the
 settings file is modified.
 """
+
 from __future__ import annotations
 
 import json
@@ -87,7 +88,7 @@ def _resolve_icon_path(icon_str: str, settings_dir: Path) -> Path | None:
     if not icon_str or icon_str.startswith("ms-appx://"):
         return None
     if icon_str.startswith("ms-appdata:///roaming/"):
-        rel = icon_str[len("ms-appdata:///roaming/"):]
+        rel = icon_str[len("ms-appdata:///roaming/") :]
         # RoamingState is a sibling of LocalState (the settings dir)
         roaming = settings_dir.parent / "RoamingState" / rel
         return roaming if roaming.exists() else None
@@ -105,6 +106,7 @@ def _resolve_icon_path(icon_str: str, settings_dir: Path) -> Path | None:
 def _load_image_from_path(path: Path) -> Image | None:
     try:
         from PIL import Image  # deferred — unavailable on non-Pillow installs
+
         img = Image.open(path).convert("RGBA")
         return img.resize((_ICON_SIZE, _ICON_SIZE), Image.LANCZOS)
     except Exception:

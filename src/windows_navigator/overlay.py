@@ -35,8 +35,8 @@ _OVERLAY_WIDTH = 1240
 _MAX_ROWS_VISIBLE = 10
 _ROW_HEIGHT = 44
 _TAB_ROW_HEIGHT = 28  # leaf (tab) rows are slimmer than window rows
-_ICON_SIZE = 32       # icon images are always 32 × 32 px; not scaled
-_TAB_ICON_SIZE = 16   # favicons for tab rows
+_ICON_SIZE = 32  # icon images are always 32 × 32 px; not scaled
+_TAB_ICON_SIZE = 16  # favicons for tab rows
 _ICON_PAD_X = 8
 _ICON_PAD_Y = (_ROW_HEIGHT - _ICON_SIZE) // 2
 _BADGE_W = 22  # desktop number badge — square, same height as width
@@ -47,12 +47,12 @@ _NOTIF_COLOR = "#f9a825"  # amber
 _NOTIF_BELL_CHAR = "🔔"
 _NOTIF_BELL_FONT = ("Segoe UI Emoji", 11)
 _BADGE_ENTRY_SIZE = 22  # px — square size for all entry-bar badges (desktop + bell)
-_ENTRY_FRAME_PAD = 8   # outer entry frame padding (px)
-_ENTRY_INNER_PAD = 4   # inner entry frame padding (px)
-_ENTRY_AREA_H = 56     # total height of the entry section (pads + entry widget)
-_ARROW_X = 6           # expand/collapse arrow x position
-_NOTIF_X_OFFSET = 14   # notification bell offset from right canvas edge
-_STRIP_DIV_PAD = 3     # vertical inset for strip slot divider lines
+_ENTRY_FRAME_PAD = 8  # outer entry frame padding (px)
+_ENTRY_INNER_PAD = 4  # inner entry frame padding (px)
+_ENTRY_AREA_H = 56  # total height of the entry section (pads + entry widget)
+_ARROW_X = 6  # expand/collapse arrow x position
+_NOTIF_X_OFFSET = 14  # notification bell offset from right canvas edge
+_STRIP_DIV_PAD = 3  # vertical inset for strip slot divider lines
 
 # Icon strip (between entry and window list)
 _STRIP_HEIGHT = _ICON_SIZE + 12  # 44 px — icon + top/bottom padding
@@ -60,7 +60,6 @@ _STRIP_SLOT_W = _ICON_SIZE + 12  # 44 px — horizontal room per icon slot
 _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
 _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
 _COUNT_BAR_H = 18  # height of the result-count footer strip
-
 
 
 def init_scale(scale: float) -> None:
@@ -100,6 +99,7 @@ def init_scale(scale: float) -> None:
     _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
     _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
     _COUNT_BAR_H = s(18)
+
 
 def _row_height(item: WindowInfo | TabInfo) -> int:
     return _TAB_ROW_HEIGHT if isinstance(item, TabInfo) else _ROW_HEIGHT
@@ -212,6 +212,7 @@ class NavigatorOverlay:
             try:
                 import ctypes
                 import ctypes.wintypes
+
                 _u = ctypes.windll.user32  # type: ignore[attr-defined]
                 _pt = ctypes.wintypes.POINT()
                 _u.GetCursorPos(ctypes.byref(_pt))
@@ -250,7 +251,9 @@ class NavigatorOverlay:
 
         # Inner frame provides the visual "entry field" background + padding.
         # Holds the desktop-prefix badge (when active) and the text entry side-by-side.
-        self._entry_inner = tk.Frame(entry_frame, bg=c["entry_bg"], padx=_ENTRY_INNER_PAD, pady=_ENTRY_INNER_PAD)
+        self._entry_inner = tk.Frame(
+            entry_frame, bg=c["entry_bg"], padx=_ENTRY_INNER_PAD, pady=_ENTRY_INNER_PAD
+        )
         self._entry_inner.pack(fill="x")
 
         self._entry = tk.Entry(
@@ -409,7 +412,9 @@ class NavigatorOverlay:
 
             if isinstance(item, TabInfo):
                 row_bg = c["row_sel"] if i == sel else c["tab_bg"]
-                self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="", tags=(f"row_bg_{i}",))
+                self._canvas.create_rectangle(
+                    0, y0, canvas_w, y1, fill=row_bg, outline="", tags=(f"row_bg_{i}",)
+                )
                 if _HAS_PIL and item.icon is not None:
                     try:
                         icon_id = id(item.icon)
@@ -429,8 +434,12 @@ class NavigatorOverlay:
                     dot_x = _ICON_PAD_X + _TAB_ICON_SIZE + 8
                     dot_y = y0 + rh // 2
                     self._canvas.create_oval(
-                        dot_x - 3, dot_y - 3, dot_x + 3, dot_y + 3,
-                        fill=c["tab_active"], outline="",
+                        dot_x - 3,
+                        dot_y - 3,
+                        dot_x + 3,
+                        dot_y + 3,
+                        fill=c["tab_active"],
+                        outline="",
                     )
                 self._canvas.create_text(
                     _TEXT_X,
@@ -446,15 +455,20 @@ class NavigatorOverlay:
             # --- Window row ---
             w = item
             row_bg = c["row_sel"] if i == sel else c["row_bg"]
-            self._canvas.create_rectangle(0, y0, canvas_w, y1, fill=row_bg, outline="", tags=(f"row_bg_{i}",))
+            self._canvas.create_rectangle(
+                0, y0, canvas_w, y1, fill=row_bg, outline="", tags=(f"row_bg_{i}",)
+            )
 
             # Expand/collapse indicator (shown only for windows with >1 tab)
             if self._controller.tab_count(w.hwnd) > 1:
                 arrow = "▾" if self._controller.is_expanded(w.hwnd) else "▸"
                 self._canvas.create_text(
-                    _ARROW_X, y0 + rh // 2,
-                    text=arrow, fill=c["proc_fg"],
-                    font=("Segoe UI", 8), anchor="w",
+                    _ARROW_X,
+                    y0 + rh // 2,
+                    text=arrow,
+                    fill=c["proc_fg"],
+                    font=("Segoe UI", 8),
+                    anchor="w",
                 )
 
             # Icon
@@ -514,7 +528,8 @@ class NavigatorOverlay:
             if w.has_notification:
                 cy = (y0 + y1) // 2
                 self._canvas.create_text(
-                    canvas_w - _NOTIF_X_OFFSET, cy,
+                    canvas_w - _NOTIF_X_OFFSET,
+                    cy,
                     text=_NOTIF_BELL_CHAR,
                     fill=_NOTIF_COLOR,
                     font=_NOTIF_BELL_FONT,
@@ -619,7 +634,12 @@ class NavigatorOverlay:
             # Vertical separator between slots
             if i < len(icons) - 1:
                 self._strip_canvas.create_line(
-                    x1, _STRIP_DIV_PAD, x1, _STRIP_HEIGHT - _STRIP_DIV_PAD, fill=c["border"], width=1
+                    x1,
+                    _STRIP_DIV_PAD,
+                    x1,
+                    _STRIP_HEIGHT - _STRIP_DIV_PAD,
+                    fill=c["border"],
+                    width=1,
                 )
 
         # Scroll selected slot into view
@@ -678,6 +698,7 @@ class NavigatorOverlay:
                 result: list[TabInfo] = []
                 try:
                     import ctypes as _ct
+
                     _ct.windll.ole32.CoInitializeEx(None, 0)  # type: ignore[attr-defined]
                 except Exception:
                     pass
@@ -688,6 +709,7 @@ class NavigatorOverlay:
                 finally:
                     try:
                         import ctypes as _ct
+
                         _ct.windll.ole32.CoUninitialize()  # type: ignore[attr-defined]
                     except Exception:
                         pass
@@ -695,6 +717,7 @@ class NavigatorOverlay:
                     return
                 try:
                     from windows_navigator.favicons import fetch_favicon
+
                     _is_wt = w.process_name.upper() == "WINDOWSTERMINAL.EXE"
                     for tab in result:
                         if cancel.is_set():
@@ -705,12 +728,14 @@ class NavigatorOverlay:
                             if _is_wt:
                                 try:
                                     from windows_navigator.wt_icons import fetch_wt_tab_icon
+
                                     tab.icon = fetch_wt_tab_icon(tab.name)
                                 except Exception:
                                     pass
                             if tab.icon is None and w.icon is not None:
                                 try:
                                     from PIL import Image as _PILImage
+
                                     tab.icon = w.icon.resize(
                                         (_TAB_ICON_SIZE, _TAB_ICON_SIZE), _PILImage.LANCZOS
                                     )
@@ -754,9 +779,8 @@ class NavigatorOverlay:
             self._refresh_canvas()
         else:
             startup_nums = [self._initial_desktop] if self._initial_desktop else []
-            at_startup = (
-                self._desktop_prefix_nums == startup_nums
-                and (self._entry is None or self._entry.get() == "")
+            at_startup = self._desktop_prefix_nums == startup_nums and (
+                self._entry is None or self._entry.get() == ""
             )
             if at_startup:
                 self.hide()
@@ -828,6 +852,7 @@ class NavigatorOverlay:
         """
         try:
             import ctypes
+
             user32 = ctypes.windll.user32  # type: ignore[attr-defined]
             if not (user32.GetKeyState(0x11) & 0x8000):  # VK_CONTROL
                 return None
@@ -841,6 +866,7 @@ class NavigatorOverlay:
                         self._activate_selected()
                     else:
                         from windows_navigator.virtual_desktop import switch_to_desktop_number
+
                         switch_to_desktop_number(num)
                         self.hide()
                     return "break"
@@ -883,12 +909,15 @@ class NavigatorOverlay:
             self._bell_badge_widget = None
         if self._controller.bell_filter:
             frame = tk.Frame(
-                self._entry_inner, bg=_NOTIF_COLOR,
-                width=_BADGE_ENTRY_SIZE, height=_BADGE_ENTRY_SIZE,
+                self._entry_inner,
+                bg=_NOTIF_COLOR,
+                width=_BADGE_ENTRY_SIZE,
+                height=_BADGE_ENTRY_SIZE,
             )
             frame.pack_propagate(False)
-            tk.Label(frame, text=_NOTIF_BELL_CHAR, bg=_NOTIF_COLOR, fg="#ffffff",
-                     font=_NOTIF_BELL_FONT).pack(fill="both", expand=True)
+            tk.Label(
+                frame, text=_NOTIF_BELL_CHAR, bg=_NOTIF_COLOR, fg="#ffffff", font=_NOTIF_BELL_FONT
+            ).pack(fill="both", expand=True)
             frame.pack(side="left", before=self._entry, padx=(0, 2))
             self._bell_badge_widget = frame
 
@@ -991,6 +1020,7 @@ class NavigatorOverlay:
         if isinstance(item, TabInfo):
             try:
                 from windows_navigator.tabs import select_tab
+
                 select_tab(item)
             except Exception:
                 pass
@@ -1039,12 +1069,15 @@ class NavigatorOverlay:
         for num in nums:
             color = _desktop_badge_color(num)
             frame = tk.Frame(
-                self._entry_inner, bg=color,
-                width=_BADGE_ENTRY_SIZE, height=_BADGE_ENTRY_SIZE,
+                self._entry_inner,
+                bg=color,
+                width=_BADGE_ENTRY_SIZE,
+                height=_BADGE_ENTRY_SIZE,
             )
             frame.pack_propagate(False)
-            tk.Label(frame, text=str(num), bg=color, fg="#ffffff",
-                     font=("Segoe UI", 10, "bold")).pack(fill="both", expand=True)
+            tk.Label(
+                frame, text=str(num), bg=color, fg="#ffffff", font=("Segoe UI", 10, "bold")
+            ).pack(fill="both", expand=True)
             frame.pack(side="left", before=self._entry, padx=(0, 2))
             self._prefix_badge_widgets.append(frame)
         # Keep bell badge after all desktop badges
@@ -1071,7 +1104,9 @@ class NavigatorOverlay:
 
         # Anchor y to where the window sits at max height so the search box
         # doesn't move as the result list grows or shrinks while typing.
-        max_overlay_h = _ENTRY_AREA_H + _STRIP_HEIGHT + _MAX_ROWS_VISIBLE * _ROW_HEIGHT + _COUNT_BAR_H
+        max_overlay_h = (
+            _ENTRY_AREA_H + _STRIP_HEIGHT + _MAX_ROWS_VISIBLE * _ROW_HEIGHT + _COUNT_BAR_H
+        )
         x = left + (mon_w - overlay_w) // 2
         y = top + (mon_h - max_overlay_h) // 2
         self._top.geometry(f"{overlay_w}x{overlay_h}+{x}+{y}")

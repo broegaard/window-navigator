@@ -26,8 +26,8 @@ def test_manager_cache_initialises_once_and_returns_same_object():
     """_ManagerCache.get() must initialise on the first call and return the cached
     result on all subsequent calls without re-running the COM initialisation."""
     cache = _ManagerCache()
-    result1 = cache.get()     # first call: runs initialisation (COM unavailable on Linux → None)
-    result2 = cache.get()     # second call: fast path — if self._attempted: return self._manager
+    result1 = cache.get()  # first call: runs initialisation (COM unavailable on Linux → None)
+    result2 = cache.get()  # second call: fast path — if self._attempted: return self._manager
     assert result1 is result2
     assert cache._attempted is True
 
@@ -114,8 +114,10 @@ def test_assign_numbers_are_one_based():
 
 def test_assign_current_desktop_flag():
     mgr = _make_manager({1: "guid-A", 2: "guid-B"}, current_hwnds={1})
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_guid", return_value="guid-A"):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_guid", return_value="guid-A"),
+    ):
         _, cur = assign_desktop_numbers([1, 2])
     assert cur[1] is True
     assert cur[2] is False
@@ -125,9 +127,13 @@ def test_assign_numbers_follow_registry_order():
     """Desktop numbers follow registry order, not z-order of the hwnd list."""
     # guid-B is first in the registry → should be desktop 1 even though guid-A appears first
     mgr = _make_manager({1: "guid-A", 2: "guid-B"}, current_hwnds={2})
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
-         patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=["guid-B", "guid-A"]):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr),
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=["guid-B", "guid-A"],
+        ),
+    ):
         nums, _ = assign_desktop_numbers([1, 2])
     assert nums[2] == 1  # guid-B is first in registry
     assert nums[1] == 2  # guid-A is second
@@ -136,8 +142,10 @@ def test_assign_numbers_follow_registry_order():
 def test_assign_numbers_fallback_to_encounter_order_when_no_registry():
     """Without registry data, desktops are numbered in first-encountered order."""
     mgr = _make_manager({1: "guid-B", 2: "guid-A"}, current_hwnds={1})
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
-         patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=None):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr),
+        patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=None),
+    ):
         nums, _ = assign_desktop_numbers([1, 2])
     assert nums[1] == 1  # guid-B first in hwnd list → desktop 1
     assert nums[2] == 2
@@ -146,8 +154,10 @@ def test_assign_numbers_fallback_to_encounter_order_when_no_registry():
 def test_assign_numbers_none_guid_gives_desktop_zero():
     """Windows whose desktop GUID cannot be determined get desktop_number=0."""
     mgr = _make_manager({1: "guid-A", 2: None}, current_hwnds={1})
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
-         patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=None):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr),
+        patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=None),
+    ):
         nums, cur = assign_desktop_numbers([1, 2])
     assert nums[2] == 0
     assert cur[2] is True  # unknown → include window (is_current defaults to True)
@@ -165,10 +175,12 @@ def test_assign_numbers_per_window_exception_gives_desktop_zero():
         def IsWindowOnCurrentVirtualDesktop(self, hwnd: int) -> bool:
             return True
 
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=_FlakyManager()), \
-         patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=None):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=_FlakyManager()),
+        patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=None),
+    ):
         nums, cur = assign_desktop_numbers([1, 2])
-    assert nums.get(1, -1) > 0   # hwnd 1 got a valid number
+    assert nums.get(1, -1) > 0  # hwnd 1 got a valid number
     assert nums[2] == 0
     assert cur[2] is True
 
@@ -193,7 +205,7 @@ def test_get_current_desktop_number_from_mocked_registry():
     # Currently on g2 → expected desktop number 2 (second in the ordered list)
     mock_winreg = MagicMock()
     mock_winreg.QueryValueEx.side_effect = [
-        (g2.bytes_le, None),                               # CurrentVirtualDesktop
+        (g2.bytes_le, None),  # CurrentVirtualDesktop
         (g1.bytes_le + g2.bytes_le + g3.bytes_le, None),  # VirtualDesktopIDs
     ]
 
@@ -341,8 +353,10 @@ def test_move_window_returns_false_when_guid_unavailable():
         def MoveWindowToDesktop(self, hwnd: int, guid: str) -> bool:
             return True
 
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=_MockManager()), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_guid", return_value=None):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=_MockManager()),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_guid", return_value=None),
+    ):
         assert move_window_to_current_desktop(12345) is False
 
 
@@ -356,9 +370,12 @@ def test_move_window_calls_manager_move_to_desktop():
             moved.append((hwnd, guid))
             return True
 
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=_MockManager()), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_guid",
-               return_value=target_guid):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=_MockManager()),
+        patch(
+            "windows_navigator.virtual_desktop.get_current_desktop_guid", return_value=target_guid
+        ),
+    ):
         result = move_window_to_current_desktop(99)
 
     assert result is True
@@ -393,9 +410,12 @@ def test_move_window_manager_raises_returns_false():
         def MoveWindowToDesktop(self, hwnd: int, guid: str) -> bool:
             raise OSError("COM failure")
 
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=_FlakyManager()), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_guid",
-               return_value=target_guid):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=_FlakyManager()),
+        patch(
+            "windows_navigator.virtual_desktop.get_current_desktop_guid", return_value=target_guid
+        ),
+    ):
         assert move_window_to_current_desktop(99) is False
 
 
@@ -408,7 +428,7 @@ def test_get_current_desktop_number_short_current_data():
     """current_data shorter than 16 bytes → 0."""
     mock_winreg = MagicMock()
     mock_winreg.QueryValueEx.side_effect = [
-        (b"\x00" * 8, None),   # CurrentVirtualDesktop — too short
+        (b"\x00" * 8, None),  # CurrentVirtualDesktop — too short
         (b"\x00" * 16, None),  # VirtualDesktopIDs
     ]
     with patch.dict("sys.modules", {"winreg": mock_winreg}):
@@ -420,9 +440,11 @@ def test_get_current_desktop_number_misaligned_all_data():
     g1 = uuid.UUID("11111111-1111-1111-1111-111111111111")
     mock_winreg = MagicMock()
     mock_winreg.QueryValueEx.side_effect = [
-        (g1.bytes_le, None),       # CurrentVirtualDesktop — valid 16 bytes
-        (g1.bytes_le + b"\x00",    # VirtualDesktopIDs — 17 bytes, misaligned
-         None),
+        (g1.bytes_le, None),  # CurrentVirtualDesktop — valid 16 bytes
+        (
+            g1.bytes_le + b"\x00",  # VirtualDesktopIDs — 17 bytes, misaligned
+            None,
+        ),
     ]
     with patch.dict("sys.modules", {"winreg": mock_winreg}):
         assert get_current_desktop_number() == 0
@@ -441,13 +463,17 @@ def test_assign_numbers_ghost_guid_gets_minus_one():
     guid_c = "cccccccc-cccc-cccc-cccc-cccccccccccc"  # not in registry
 
     mgr = _make_manager({1: guid_a, 2: guid_b, 3: guid_c}, current_hwnds={1})
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
-         patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=[guid_a, guid_b]):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr),
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=[guid_a, guid_b],
+        ),
+    ):
         nums, cur = assign_desktop_numbers([1, 2, 3])
-    assert nums[1] == 1    # guid_a → desktop 1
-    assert nums[2] == 2    # guid_b → desktop 2
-    assert nums[3] == -1   # guid_c → ghost, excluded
+    assert nums[1] == 1  # guid_a → desktop 1
+    assert nums[2] == 2  # guid_b → desktop 2
+    assert nums[3] == -1  # guid_c → ghost, excluded
     assert cur[3] is False
 
 
@@ -457,12 +483,13 @@ def test_assign_numbers_ghost_guid_without_registry_gets_appended():
     guid_c = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 
     mgr = _make_manager({1: guid_a, 2: guid_c}, current_hwnds={1})
-    with patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr), \
-         patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=None):
+    with (
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=mgr),
+        patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=None),
+    ):
         nums, _ = assign_desktop_numbers([1, 2])
     assert nums[1] == 1
-    assert nums[2] == 2   # no registry → appended normally
+    assert nums[2] == 2  # no registry → appended normally
 
 
 # ---------------------------------------------------------------------------
@@ -534,70 +561,92 @@ def test_switch_to_desktop_number_no_pyvda_returns_false():
 
 def test_move_to_adjacent_left_boundary_returns_zero():
     """At the leftmost desktop, moving left is a no-op."""
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=["g1", "g2", "g3"]), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=1):
+    with (
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=["g1", "g2", "g3"],
+        ),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=1),
+    ):
         result = move_window_to_adjacent_desktop(99, -1)
     assert result == 0
 
 
 def test_move_to_adjacent_right_boundary_returns_zero():
     """At the rightmost desktop, moving right is a no-op."""
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=["g1", "g2", "g3"]), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=3):
+    with (
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=["g1", "g2", "g3"],
+        ),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=3),
+    ):
         result = move_window_to_adjacent_desktop(99, +1)
     assert result == 0
 
 
 def test_move_to_adjacent_right_returns_target():
     mock_pyvda = MagicMock()
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=["g1", "g2", "g3"]), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=1), \
-         patch.dict("sys.modules", {"pyvda": mock_pyvda}):
+    with (
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=["g1", "g2", "g3"],
+        ),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=1),
+        patch.dict("sys.modules", {"pyvda": mock_pyvda}),
+    ):
         result = move_window_to_adjacent_desktop(99, +1)
     assert result == 2
 
 
 def test_move_to_adjacent_left_returns_target():
     mock_pyvda = MagicMock()
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=["g1", "g2", "g3"]), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=3), \
-         patch.dict("sys.modules", {"pyvda": mock_pyvda}):
+    with (
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=["g1", "g2", "g3"],
+        ),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=3),
+        patch.dict("sys.modules", {"pyvda": mock_pyvda}),
+    ):
         result = move_window_to_adjacent_desktop(99, -1)
     assert result == 2
 
 
 def test_move_to_adjacent_calls_appview_with_hwnd():
     mock_pyvda = MagicMock()
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=["g1", "g2"]), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=1), \
-         patch.dict("sys.modules", {"pyvda": mock_pyvda}):
+    with (
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=["g1", "g2"],
+        ),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=1),
+        patch.dict("sys.modules", {"pyvda": mock_pyvda}),
+    ):
         move_window_to_adjacent_desktop(777, +1)
     mock_pyvda.AppView.assert_called_once_with(777)
 
 
 def test_move_to_adjacent_no_registry_data_returns_zero():
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=None):
+    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=None):
         result = move_window_to_adjacent_desktop(99, +1)
     assert result == 0
 
 
 def test_move_to_adjacent_empty_registry_returns_zero():
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=[]):
+    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order", return_value=[]):
         result = move_window_to_adjacent_desktop(99, +1)
     assert result == 0
 
 
 def test_move_to_adjacent_unknown_current_desktop_returns_zero():
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=["g1", "g2"]), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=0):
+    with (
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=["g1", "g2"],
+        ),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=0),
+    ):
         result = move_window_to_adjacent_desktop(99, +1)
     assert result == 0
 
@@ -606,26 +655,33 @@ def test_move_to_adjacent_appview_exception_returns_zero():
     """AppView.move failure aborts the operation; desktop is not switched."""
     mock_pyvda = MagicMock()
     mock_pyvda.AppView.return_value.move.side_effect = OSError("move failed")
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               return_value=["g1", "g2", "g3"]), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=2), \
-         patch.dict("sys.modules", {"pyvda": mock_pyvda}):
+    with (
+        patch(
+            "windows_navigator.virtual_desktop._get_registry_desktop_order",
+            return_value=["g1", "g2", "g3"],
+        ),
+        patch("windows_navigator.virtual_desktop.get_current_desktop_number", return_value=2),
+        patch.dict("sys.modules", {"pyvda": mock_pyvda}),
+    ):
         result = move_window_to_adjacent_desktop(99, +1)
     assert result == 0
 
 
 def test_move_to_adjacent_outer_exception_returns_zero():
     """If _get_registry_desktop_order raises, the outer except returns 0."""
-    with patch("windows_navigator.virtual_desktop._get_registry_desktop_order",
-               side_effect=RuntimeError("unexpected")):
+    with patch(
+        "windows_navigator.virtual_desktop._get_registry_desktop_order",
+        side_effect=RuntimeError("unexpected"),
+    ):
         result = move_window_to_adjacent_desktop(99, +1)
     assert result == 0
 
 
 def test_assign_desktop_numbers_outer_exception_returns_empty_dicts():
     """If _get_manager raises (not just returns None), assign_desktop_numbers returns {}, {}."""
-    with patch("windows_navigator.virtual_desktop._get_manager",
-               side_effect=RuntimeError("COM exploded")):
+    with patch(
+        "windows_navigator.virtual_desktop._get_manager", side_effect=RuntimeError("COM exploded")
+    ):
         nums, cur = assign_desktop_numbers([1, 2, 3])
     assert nums == {}
     assert cur == {}
@@ -657,11 +713,14 @@ def test_manager_cache_returns_manager_when_comtypes_available():
     mock_comtypes_gen = MagicMock()
     mock_vdm = MagicMock()
 
-    with patch.dict("sys.modules", {
-        "comtypes": mock_comtypes,
-        "comtypes.gen": mock_comtypes_gen,
-        "comtypes.gen.IVirtualDesktopManager": mock_vdm,
-    }):
+    with patch.dict(
+        "sys.modules",
+        {
+            "comtypes": mock_comtypes,
+            "comtypes.gen": mock_comtypes_gen,
+            "comtypes.gen.IVirtualDesktopManager": mock_vdm,
+        },
+    ):
         cache = _ManagerCache()
         result = cache.get()
 
@@ -703,9 +762,11 @@ def test_try_raw_ctypes_returns_raw_manager_on_success():
     mock_windll = MagicMock()
     mock_windll.ole32.CoCreateInstance.return_value = 0
 
-    with patch.object(ctypes, "windll", mock_windll, create=True), \
-            patch.object(ctypes, "c_void_p", return_value=fake_ptr), \
-            patch.object(ctypes, "byref", side_effect=lambda x: x):
+    with (
+        patch.object(ctypes, "windll", mock_windll, create=True),
+        patch.object(ctypes, "c_void_p", return_value=fake_ptr),
+        patch.object(ctypes, "byref", side_effect=lambda x: x),
+    ):
         result = _try_raw_ctypes()
 
     assert isinstance(result, _RawVDManager)
@@ -746,8 +807,10 @@ def test_raw_vdmanager_is_on_current_returns_true_on_nonzero_hr():
     from windows_navigator.virtual_desktop import _RawVDManager
 
     mgr = _RawVDManager(MagicMock())
-    with patch.object(mgr, "_vtable_call", return_value=1), \
-            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+    with (
+        patch.object(mgr, "_vtable_call", return_value=1),
+        patch.object(ctypes, "HRESULT", MagicMock(), create=True),
+    ):
         assert mgr.IsWindowOnCurrentVirtualDesktop(42) is True
 
 
@@ -758,8 +821,10 @@ def test_raw_vdmanager_is_on_current_returns_result_value_on_zero_hr():
     from windows_navigator.virtual_desktop import _RawVDManager
 
     mgr = _RawVDManager(MagicMock())
-    with patch.object(mgr, "_vtable_call", return_value=0), \
-            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+    with (
+        patch.object(mgr, "_vtable_call", return_value=0),
+        patch.object(ctypes, "HRESULT", MagicMock(), create=True),
+    ):
         assert mgr.IsWindowOnCurrentVirtualDesktop(42) is False
 
 
@@ -769,8 +834,10 @@ def test_raw_vdmanager_get_desktop_id_returns_none_on_nonzero_hr():
     from windows_navigator.virtual_desktop import _RawVDManager
 
     mgr = _RawVDManager(MagicMock())
-    with patch.object(mgr, "_vtable_call", return_value=1), \
-            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+    with (
+        patch.object(mgr, "_vtable_call", return_value=1),
+        patch.object(ctypes, "HRESULT", MagicMock(), create=True),
+    ):
         assert mgr.GetWindowDesktopId(42) is None
 
 
@@ -781,8 +848,10 @@ def test_raw_vdmanager_get_desktop_id_returns_guid_string_on_zero_hr():
     from windows_navigator.virtual_desktop import _RawVDManager
 
     mgr = _RawVDManager(MagicMock())
-    with patch.object(mgr, "_vtable_call", return_value=0), \
-            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+    with (
+        patch.object(mgr, "_vtable_call", return_value=0),
+        patch.object(ctypes, "HRESULT", MagicMock(), create=True),
+    ):
         result = mgr.GetWindowDesktopId(42)
     assert result == "00000000-0000-0000-0000-000000000000"
 
@@ -793,8 +862,10 @@ def test_raw_vdmanager_move_to_desktop_returns_true_on_zero_hr():
     from windows_navigator.virtual_desktop import _RawVDManager
 
     mgr = _RawVDManager(MagicMock())
-    with patch.object(mgr, "_vtable_call", return_value=0), \
-            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+    with (
+        patch.object(mgr, "_vtable_call", return_value=0),
+        patch.object(ctypes, "HRESULT", MagicMock(), create=True),
+    ):
         assert mgr.MoveWindowToDesktop(42, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is True
 
 
@@ -804,8 +875,10 @@ def test_raw_vdmanager_move_to_desktop_returns_false_on_nonzero_hr():
     from windows_navigator.virtual_desktop import _RawVDManager
 
     mgr = _RawVDManager(MagicMock())
-    with patch.object(mgr, "_vtable_call", return_value=1), \
-            patch.object(ctypes, "HRESULT", MagicMock(), create=True):
+    with (
+        patch.object(mgr, "_vtable_call", return_value=1),
+        patch.object(ctypes, "HRESULT", MagicMock(), create=True),
+    ):
         assert mgr.MoveWindowToDesktop(42, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is False
 
 
@@ -838,10 +911,13 @@ def test_move_window_pyvda_raises_then_fallback_com_succeeds():
     mock_pyvda = MagicMock()
     mock_pyvda.AppView.return_value.move.side_effect = OSError("cross-process restriction")
 
-    with patch.dict("sys.modules", {"pyvda": mock_pyvda}), \
-         patch("windows_navigator.virtual_desktop._get_manager", return_value=_MockManager()), \
-         patch("windows_navigator.virtual_desktop.get_current_desktop_guid",
-               return_value=target_guid):
+    with (
+        patch.dict("sys.modules", {"pyvda": mock_pyvda}),
+        patch("windows_navigator.virtual_desktop._get_manager", return_value=_MockManager()),
+        patch(
+            "windows_navigator.virtual_desktop.get_current_desktop_guid", return_value=target_guid
+        ),
+    ):
         result = move_window_to_current_desktop(77)
 
     assert result is True

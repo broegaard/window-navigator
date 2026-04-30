@@ -1,4 +1,5 @@
 """Tests for wt_icons.py — Windows Terminal per-profile icon resolution."""
+
 from __future__ import annotations
 
 import json
@@ -64,7 +65,6 @@ def test_exe_from_commandline_expands_env_vars(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-
 def test_resolve_icon_path_msappx_returns_none(tmp_path):
     assert _resolve_icon_path("ms-appx:///ProfileIcons/{guid}.png", tmp_path) is None
 
@@ -120,7 +120,6 @@ def test_resolve_icon_path_msappdata_roaming_missing(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-
 def test_load_profiles_from_list_format(tmp_path):
     settings = tmp_path / "settings.json"
     settings.write_text(
@@ -159,16 +158,13 @@ def test_load_profiles_from_bom(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-
 def test_build_profile_map_file_icon(tmp_path):
     icon_file = tmp_path / "myicon.png"
     icon_file.write_bytes(b"")
 
     settings = tmp_path / "settings.json"
     settings.write_text(
-        json.dumps({"profiles": {"list": [
-            {"name": "MyShell", "icon": str(icon_file)}
-        ]}}),
+        json.dumps({"profiles": {"list": [{"name": "MyShell", "icon": str(icon_file)}]}}),
         encoding="utf-8",
     )
 
@@ -182,9 +178,7 @@ def test_build_profile_map_file_icon(tmp_path):
 def test_build_profile_map_commandline_fallback(tmp_path):
     settings = tmp_path / "settings.json"
     settings.write_text(
-        json.dumps({"profiles": {"list": [
-            {"name": "PowerShell", "commandline": "pwsh.exe"}
-        ]}}),
+        json.dumps({"profiles": {"list": [{"name": "PowerShell", "commandline": "pwsh.exe"}]}}),
         encoding="utf-8",
     )
 
@@ -198,9 +192,7 @@ def test_build_profile_map_commandline_fallback(tmp_path):
 def test_build_profile_map_source_fallback_wsl(tmp_path):
     settings = tmp_path / "settings.json"
     settings.write_text(
-        json.dumps({"profiles": {"list": [
-            {"name": "Ubuntu", "source": "Windows.Terminal.Wsl"}
-        ]}}),
+        json.dumps({"profiles": {"list": [{"name": "Ubuntu", "source": "Windows.Terminal.Wsl"}]}}),
         encoding="utf-8",
     )
 
@@ -215,11 +207,19 @@ def test_build_profile_map_source_fallback_wsl(tmp_path):
 def test_build_profile_map_msappx_falls_back_to_commandline(tmp_path):
     settings = tmp_path / "settings.json"
     settings.write_text(
-        json.dumps({"profiles": {"list": [
-            {"name": "Windows PowerShell",
-             "icon": "ms-appx:///ProfileIcons/{guid}.png",
-             "commandline": "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"}
-        ]}}),
+        json.dumps(
+            {
+                "profiles": {
+                    "list": [
+                        {
+                            "name": "Windows PowerShell",
+                            "icon": "ms-appx:///ProfileIcons/{guid}.png",
+                            "commandline": "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                        }
+                    ]
+                }
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -250,9 +250,15 @@ def test_build_profile_map_icon_load_failure_falls_back_to_exe(tmp_path):
     icon_file.write_bytes(b"")
     settings = tmp_path / "settings.json"
     settings.write_text(
-        json.dumps({"profiles": {"list": [
-            {"name": "MyShell", "icon": str(icon_file), "commandline": "myshell.exe"}
-        ]}}),
+        json.dumps(
+            {
+                "profiles": {
+                    "list": [
+                        {"name": "MyShell", "icon": str(icon_file), "commandline": "myshell.exe"}
+                    ]
+                }
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -269,7 +275,6 @@ def test_build_profile_map_icon_load_failure_falls_back_to_exe(tmp_path):
 # ---------------------------------------------------------------------------
 # fetch_wt_tab_icon
 # ---------------------------------------------------------------------------
-
 
 
 def _mock_profile_map(profiles: dict) -> MagicMock:
@@ -340,7 +345,6 @@ def test_fetch_wt_tab_icon_exception_returns_none():
 # ---------------------------------------------------------------------------
 # _get_profile_map — mtime invalidation
 # ---------------------------------------------------------------------------
-
 
 
 def test_get_profile_map_rebuilds_on_mtime_change(tmp_path):

@@ -1,4 +1,5 @@
 """Settings window — hotkey selection and startup behaviour."""
+
 from __future__ import annotations
 
 import tkinter as tk

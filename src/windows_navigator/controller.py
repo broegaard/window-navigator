@@ -248,7 +248,8 @@ class OverlayController:
         its tabs are fetched.  Pressing again while the flag is set cancels the intent.
         """
         hwnds_with_tabs = {
-            w.hwnd for w in self.filtered_windows
+            w.hwnd
+            for w in self.filtered_windows
             if w.hwnd in self._tabs and len(self._tabs[w.hwnd]) > 1
         }
         if not hwnds_with_tabs:
@@ -289,9 +290,7 @@ class OverlayController:
         names = {w.process_name for w in self.text_filtered_windows}
         hwnd_to_window = {w.hwnd: w for w in self.all_windows}
         names |= {
-            hwnd_to_window[h].process_name
-            for h in self._tab_query_matches
-            if h in hwnd_to_window
+            hwnd_to_window[h].process_name for h in self._tab_query_matches if h in hwnd_to_window
         }
         if self._app_filter not in names:
             self._app_filter = None

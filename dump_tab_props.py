@@ -6,6 +6,7 @@ Run on Windows with the venv active:
 
 Open a browser with a few tabs before running.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -13,23 +14,23 @@ import ctypes.wintypes
 import sys
 
 # ── UIA constants ────────────────────────────────────────────────────────────
-_UIA_TabItemControlTypeId    = 50019
-_UIA_DocumentControlTypeId   = 50030
-_UIA_ImageControlTypeId      = 50006
+_UIA_TabItemControlTypeId = 50019
+_UIA_DocumentControlTypeId = 50030
+_UIA_ImageControlTypeId = 50006
 
-_UIA_ControlTypePropertyId   = 30003
-_UIA_NamePropertyId          = 30005
-_UIA_HelpTextPropertyId      = 30013
-_UIA_AutomationIdPropertyId  = 30011
-_UIA_ClassNamePropertyId     = 30012
-_UIA_FullDescriptionPropertyId = 30159   # Win 8.1+
-_UIA_ValueValuePropertyId    = 30045
+_UIA_ControlTypePropertyId = 30003
+_UIA_NamePropertyId = 30005
+_UIA_HelpTextPropertyId = 30013
+_UIA_AutomationIdPropertyId = 30011
+_UIA_ClassNamePropertyId = 30012
+_UIA_FullDescriptionPropertyId = 30159  # Win 8.1+
+_UIA_ValueValuePropertyId = 30045
 
 _UIA_LegacyIAccessiblePatternId = 10018
 
 _TreeScope_Children = 2
-_TreeScope_Subtree  = 7
-_MAX_DEPTH          = 12
+_TreeScope_Subtree = 7
+_MAX_DEPTH = 12
 
 COINIT_APARTMENTTHREADED = 0x2
 
@@ -40,8 +41,10 @@ def _init_com() -> None:
 
 def _create_uia():
     import comtypes.client
+
     comtypes.client.GetModule("UIAutomationCore.dll")
     import comtypes.gen.UIAutomationClient as uiac
+
     return comtypes.client.CreateObject(
         "{ff48dba4-60ef-4201-aa87-54103eef594e}",
         interface=uiac.IUIAutomation,
@@ -86,10 +89,17 @@ def _legacy_ia_props(element) -> dict[str, str]:
     out: dict[str, str] = {}
     try:
         import comtypes.gen.UIAutomationClient as uiac
+
         pat = element.GetCurrentPattern(_UIA_LegacyIAccessiblePatternId)
         ia = pat.QueryInterface(uiac.IUIAutomationLegacyIAccessiblePattern)
-        for attr in ("CurrentName", "CurrentDescription", "CurrentValue",
-                     "CurrentDefaultAction", "CurrentRole", "CurrentState"):
+        for attr in (
+            "CurrentName",
+            "CurrentDescription",
+            "CurrentValue",
+            "CurrentDefaultAction",
+            "CurrentRole",
+            "CurrentState",
+        ):
             try:
                 v = getattr(ia, attr)
                 if v not in (None, "", 0):
@@ -107,7 +117,7 @@ def _dump_children(element, uia, depth: int = 0, max_depth: int = 3) -> None:
     indent = "  " * (depth + 2)
     for child in _get_children(element, uia):
         try:
-            ct   = child.GetCurrentPropertyValue(_UIA_ControlTypePropertyId)
+            ct = child.GetCurrentPropertyValue(_UIA_ControlTypePropertyId)
             name = child.GetCurrentPropertyValue(_UIA_NamePropertyId) or ""
             print(f"{indent}child ct={ct} name={name!r}")
             # for image children dump extra props
@@ -149,9 +159,9 @@ def _dump_tree_brief(element, uia, depth: int = 0, max_depth: int = 5) -> None:
         return
     indent = "  " * depth
     try:
-        ct    = element.GetCurrentPropertyValue(_UIA_ControlTypePropertyId)
-        name  = element.GetCurrentPropertyValue(_UIA_NamePropertyId) or ""
-        cls   = _safe_prop(element, _UIA_ClassNamePropertyId)
+        ct = element.GetCurrentPropertyValue(_UIA_ControlTypePropertyId)
+        name = element.GetCurrentPropertyValue(_UIA_NamePropertyId) or ""
+        cls = _safe_prop(element, _UIA_ClassNamePropertyId)
         autid = _safe_prop(element, _UIA_AutomationIdPropertyId)
         extras = ""
         if cls:
@@ -169,8 +179,10 @@ def _dump_tree_brief(element, uia, depth: int = 0, max_depth: int = 5) -> None:
 def _test_favicon_fetch(domains: set[str]) -> None:
     import io
     import urllib.request
+
     try:
         from PIL import Image
+
         has_pil = True
     except ImportError:
         has_pil = False
@@ -194,7 +206,9 @@ def _test_favicon_fetch(domains: set[str]) -> None:
                     img = Image.open(io.BytesIO(data)).convert("RGBA")
                     print(f"    {domain}: {url_template} -> OK ({img.size})")
                 else:
-                    print(f"    {domain}: {url_template} -> OK ({len(data)} bytes, PIL not available)")
+                    print(
+                        f"    {domain}: {url_template} -> OK ({len(data)} bytes, PIL not available)"
+                    )
                 break
             except Exception as e:
                 print(f"    {domain}: {url_template} -> FAIL ({e})")
@@ -213,7 +227,7 @@ def main() -> None:
         sys.exit(1)
 
     for hwnd, title in windows:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"hwnd={hwnd}  title={title!r}")
         root = uia.ElementFromHandle(hwnd)
         tabs = _collect_tab_items(root, uia)
@@ -225,12 +239,12 @@ def main() -> None:
         for i, el in enumerate(tabs[:10]):  # limit to first 10 tabs
             print(f"\n  [tab {i}]")
             for pid, label in [
-                (_UIA_NamePropertyId,             "Name"),
-                (_UIA_HelpTextPropertyId,         "HelpText"),
-                (_UIA_FullDescriptionPropertyId,  "FullDesc"),
-                (_UIA_AutomationIdPropertyId,     "AutoId"),
-                (_UIA_ClassNamePropertyId,        "ClassName"),
-                (_UIA_ValueValuePropertyId,       "Value"),
+                (_UIA_NamePropertyId, "Name"),
+                (_UIA_HelpTextPropertyId, "HelpText"),
+                (_UIA_FullDescriptionPropertyId, "FullDesc"),
+                (_UIA_AutomationIdPropertyId, "AutoId"),
+                (_UIA_ClassNamePropertyId, "ClassName"),
+                (_UIA_ValueValuePropertyId, "Value"),
             ]:
                 v = _safe_prop(el, pid)
                 if v:
@@ -246,10 +260,7 @@ def main() -> None:
         _dump_url_bar_candidates(root, uia)
 
         # Test favicon fetch for every unique domain found
-        domains = {
-            _safe_prop(el, _UIA_FullDescriptionPropertyId).strip("'")
-            for el in tabs
-        }
+        domains = {_safe_prop(el, _UIA_FullDescriptionPropertyId).strip("'") for el in tabs}
         domains.discard("")
         if domains:
             print("\n  --- favicon fetch test ---")
@@ -265,10 +276,12 @@ def _dump_url_bar_candidates(element, uia, depth: int = 0) -> None:
         if ct == _UIA_DocumentControlTypeId:
             return
         if ct == 50004:  # Edit
-            auto_id = str(element.GetCurrentPropertyValue(_UIA_AutomationIdPropertyId) or "").lower()
-            cls     = str(element.GetCurrentPropertyValue(_UIA_ClassNamePropertyId) or "").lower()
-            val     = _safe_prop(element, _UIA_ValueValuePropertyId)
-            name    = _safe_prop(element, _UIA_NamePropertyId)
+            auto_id = str(
+                element.GetCurrentPropertyValue(_UIA_AutomationIdPropertyId) or ""
+            ).lower()
+            cls = str(element.GetCurrentPropertyValue(_UIA_ClassNamePropertyId) or "").lower()
+            val = _safe_prop(element, _UIA_ValueValuePropertyId)
+            name = _safe_prop(element, _UIA_NamePropertyId)
             print(f"    depth={depth} autid={auto_id!r} cls={cls!r} val={val} name={name}")
     except Exception:
         return

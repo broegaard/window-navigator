@@ -244,8 +244,10 @@ def test_fetch_tabs_marks_active_tab():
     def _is_selected_side_effect(el):
         return el is tab_elements[1]
 
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia), \
-         patch("windows_navigator.tabs._is_tab_selected", side_effect=_is_selected_side_effect):
+    with (
+        patch("windows_navigator.tabs._create_uia", return_value=mock_uia),
+        patch("windows_navigator.tabs._is_tab_selected", side_effect=_is_selected_side_effect),
+    ):
         result = fetch_tabs(hwnd=42)
 
     assert len(result) == 3
@@ -258,8 +260,10 @@ def test_fetch_tabs_is_active_false_when_none_selected():
     """If no tab reports as selected, all tabs have is_active=False."""
     mock_uia, _ = _make_uia_tree(["Tab A", "Tab B"])
 
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia), \
-         patch("windows_navigator.tabs._is_tab_selected", return_value=False):
+    with (
+        patch("windows_navigator.tabs._create_uia", return_value=mock_uia),
+        patch("windows_navigator.tabs._is_tab_selected", return_value=False),
+    ):
         result = fetch_tabs(hwnd=42)
 
     assert all(not t.is_active for t in result)
@@ -273,12 +277,17 @@ def test_select_tab_happy_path_calls_select():
     mock_comtypes_gen = MagicMock()
     mock_comtypes_gen.UIAutomationClient = mock_uiac
 
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia), \
-         patch.dict("sys.modules", {
-             "comtypes": MagicMock(),
-             "comtypes.gen": mock_comtypes_gen,
-             "comtypes.gen.UIAutomationClient": mock_uiac,
-         }):
+    with (
+        patch("windows_navigator.tabs._create_uia", return_value=mock_uia),
+        patch.dict(
+            "sys.modules",
+            {
+                "comtypes": MagicMock(),
+                "comtypes.gen": mock_comtypes_gen,
+                "comtypes.gen.UIAutomationClient": mock_uiac,
+            },
+        ),
+    ):
         select_tab(TabInfo(name="Tab A", hwnd=42, index=0))
 
     mock_pattern.QueryInterface.return_value.Select.assert_called_once()
@@ -602,8 +611,10 @@ def test_fetch_tabs_domain_cache_restores_domain_for_inactive_tab():
         active_index=0,
         active_url="www.dr.dk/nyheder",
     )
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia_1), \
-         patch("windows_navigator.tabs._save_tab_domain_cache"):
+    with (
+        patch("windows_navigator.tabs._create_uia", return_value=mock_uia_1),
+        patch("windows_navigator.tabs._save_tab_domain_cache"),
+    ):
         fetch_tabs(hwnd=10)
 
     # Second open: Gmail is now active. DR News is inactive → no URL bar domain.
@@ -612,8 +623,10 @@ def test_fetch_tabs_domain_cache_restores_domain_for_inactive_tab():
         active_index=1,
         active_url="mail.google.com",
     )
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia_2), \
-         patch("windows_navigator.tabs._save_tab_domain_cache"):
+    with (
+        patch("windows_navigator.tabs._create_uia", return_value=mock_uia_2),
+        patch("windows_navigator.tabs._save_tab_domain_cache"),
+    ):
         result = fetch_tabs(hwnd=10)
 
     dr_tab = next(t for t in result if t.name == "DR News")
@@ -635,8 +648,10 @@ def test_cache_file_path_uses_appdata(tmp_path):
 
 def test_cache_file_path_falls_back_to_home_config(tmp_path):
     env = {k: v for k, v in __import__("os").environ.items() if k != "APPDATA"}
-    with patch.dict("os.environ", env, clear=True), \
-         patch("windows_navigator.tabs.Path.home", return_value=tmp_path):
+    with (
+        patch.dict("os.environ", env, clear=True),
+        patch("windows_navigator.tabs.Path.home", return_value=tmp_path),
+    ):
         path = _cache_file_path()
     assert path == tmp_path / ".config" / "windows-navigator" / "tab_domain_cache.json"
 
@@ -646,7 +661,9 @@ def test_save_and_load_roundtrip(tmp_path):
     tabs_module._tab_domain_cache["DR News"] = "www.dr.dk"
     tabs_module._tab_domain_cache["Gmail"] = "mail.google.com"
 
-    with patch("windows_navigator.tabs._cache_file_path", return_value=tmp_path / "tab_domain_cache.json"):
+    with patch(
+        "windows_navigator.tabs._cache_file_path", return_value=tmp_path / "tab_domain_cache.json"
+    ):
         _save_tab_domain_cache(dict(tabs_module._tab_domain_cache))
         tabs_module._tab_domain_cache.clear()
         _load_tab_domain_cache()
@@ -657,8 +674,9 @@ def test_save_and_load_roundtrip(tmp_path):
 
 def test_load_ignores_missing_file(tmp_path):
     tabs_module._tab_domain_cache.clear()
-    with patch("windows_navigator.tabs._cache_file_path",
-               return_value=tmp_path / "nonexistent.json"):
+    with patch(
+        "windows_navigator.tabs._cache_file_path", return_value=tmp_path / "nonexistent.json"
+    ):
         _load_tab_domain_cache()  # must not raise
     assert len(tabs_module._tab_domain_cache) == 0
 
@@ -677,8 +695,10 @@ def test_fetch_tabs_saves_cache_on_new_domain(tmp_path):
     cache_path = tmp_path / "tab_domain_cache.json"
     mock_uia = _make_firefox_tree(["DR News"], active_index=0, active_url="www.dr.dk")
 
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia), \
-         patch("windows_navigator.tabs._cache_file_path", return_value=cache_path):
+    with (
+        patch("windows_navigator.tabs._create_uia", return_value=mock_uia),
+        patch("windows_navigator.tabs._cache_file_path", return_value=cache_path),
+    ):
         fetch_tabs(hwnd=10)
 
     assert cache_path.exists()
@@ -692,9 +712,11 @@ def test_fetch_tabs_does_not_save_when_domain_unchanged(tmp_path):
     cache_path = tmp_path / "tab_domain_cache.json"
     mock_uia = _make_firefox_tree(["DR News"], active_index=0, active_url="www.dr.dk")
 
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia), \
-         patch("windows_navigator.tabs._cache_file_path", return_value=cache_path), \
-         patch("windows_navigator.tabs._save_tab_domain_cache") as mock_save:
+    with (
+        patch("windows_navigator.tabs._create_uia", return_value=mock_uia),
+        patch("windows_navigator.tabs._cache_file_path", return_value=cache_path),
+        patch("windows_navigator.tabs._save_tab_domain_cache") as mock_save,
+    ):
         fetch_tabs(hwnd=10)
 
     mock_save.assert_not_called()

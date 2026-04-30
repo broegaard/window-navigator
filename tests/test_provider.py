@@ -158,15 +158,22 @@ def _make_provider_with_windows(hwnds_titles_exes):
         exe = exe_map.get(hwnd, "")
         return (exe.split("\\")[-1] if exe else ""), exe
 
-    provider = RealWindowProvider(assign_desktops=lambda h: ({hw: 1 for hw in h}, {hw: True for hw in h}))
+    provider = RealWindowProvider(
+        assign_desktops=lambda h: ({hw: 1 for hw in h}, {hw: True for hw in h})
+    )
 
-    with patch.dict(sys.modules, {
-        "win32gui": win32gui,
-        "win32con": win32con,
-        "win32process": win32process,
-    }):
-        with patch("windows_navigator.provider.RealWindowProvider._get_process_info",
-                   side_effect=get_process_info_side_effect):
+    with patch.dict(
+        sys.modules,
+        {
+            "win32gui": win32gui,
+            "win32con": win32con,
+            "win32process": win32process,
+        },
+    ):
+        with patch(
+            "windows_navigator.provider.RealWindowProvider._get_process_info",
+            side_effect=get_process_info_side_effect,
+        ):
             with patch("windows_navigator.provider.IconExtractor.extract") as mock_extract:
                 mock_extract.return_value = _FALLBACK_ICON.copy()
                 provider.get_windows()
@@ -229,11 +236,17 @@ def test_icon_cache_populated_after_get_windows():
         exe = exe_map.get(hwnd, "")
         return exe.split("\\")[-1], exe
 
-    with patch.dict(sys.modules, {"win32gui": win32gui, "win32con": win32con, "win32process": win32process}):
-        with patch("windows_navigator.provider.RealWindowProvider._get_process_info",
-                   side_effect=_fake_get_process_info):
-            with patch("windows_navigator.provider.IconExtractor.extract",
-                       return_value=_FALLBACK_ICON.copy()):
+    with patch.dict(
+        sys.modules, {"win32gui": win32gui, "win32con": win32con, "win32process": win32process}
+    ):
+        with patch(
+            "windows_navigator.provider.RealWindowProvider._get_process_info",
+            side_effect=_fake_get_process_info,
+        ):
+            with patch(
+                "windows_navigator.provider.IconExtractor.extract",
+                return_value=_FALLBACK_ICON.copy(),
+            ):
                 provider.get_windows()
 
     assert set(provider._icon_cache.keys()) == {"c:\\a.exe", "c:\\b.exe"}
@@ -259,11 +272,17 @@ def test_icon_cache_persists_across_get_windows_calls():
         assign_desktops=lambda h: ({hw: 1 for hw in h}, {hw: True for hw in h})
     )
 
-    with patch.dict(sys.modules, {"win32gui": win32gui, "win32con": win32con, "win32process": win32process}):
-        with patch("windows_navigator.provider.RealWindowProvider._get_process_info",
-                   return_value=("app.exe", exe)):
-            with patch("windows_navigator.provider.IconExtractor.extract",
-                       return_value=_FALLBACK_ICON.copy()) as mock_extract:
+    with patch.dict(
+        sys.modules, {"win32gui": win32gui, "win32con": win32con, "win32process": win32process}
+    ):
+        with patch(
+            "windows_navigator.provider.RealWindowProvider._get_process_info",
+            return_value=("app.exe", exe),
+        ):
+            with patch(
+                "windows_navigator.provider.IconExtractor.extract",
+                return_value=_FALLBACK_ICON.copy(),
+            ) as mock_extract:
                 provider.get_windows()
                 provider.get_windows()
 
@@ -330,49 +349,62 @@ def _run_get_windows(hwnd_entries, extra_filters=None, flashing=None):
         flashing=flashing or set(),
     )
 
-    with patch.dict(sys.modules, {"win32gui": win32gui, "win32con": win32con,
-                                   "win32process": win32process}):
-        with patch("windows_navigator.provider.RealWindowProvider._get_process_info",
-                   side_effect=_fake_process_info):
-            with patch("windows_navigator.provider.IconExtractor.extract",
-                       return_value=_FALLBACK_ICON.copy()):
+    with patch.dict(
+        sys.modules, {"win32gui": win32gui, "win32con": win32con, "win32process": win32process}
+    ):
+        with patch(
+            "windows_navigator.provider.RealWindowProvider._get_process_info",
+            side_effect=_fake_process_info,
+        ):
+            with patch(
+                "windows_navigator.provider.IconExtractor.extract",
+                return_value=_FALLBACK_ICON.copy(),
+            ):
                 results = provider.get_windows()
 
     return results, provider
 
 
 def test_get_windows_skips_invisible_windows():
-    results, _ = _run_get_windows([
-        {"hwnd": 1, "title": "Visible"},
-        {"hwnd": 2, "title": "Hidden", "visible": False},
-    ])
+    results, _ = _run_get_windows(
+        [
+            {"hwnd": 1, "title": "Visible"},
+            {"hwnd": 2, "title": "Hidden", "visible": False},
+        ]
+    )
     assert len(results) == 1
     assert results[0].hwnd == 1
 
 
 def test_get_windows_skips_toolwindows():
-    results, _ = _run_get_windows([
-        {"hwnd": 1, "title": "Normal"},
-        {"hwnd": 2, "title": "Tool", "exstyle": 0x80},
-    ])
+    results, _ = _run_get_windows(
+        [
+            {"hwnd": 1, "title": "Normal"},
+            {"hwnd": 2, "title": "Tool", "exstyle": 0x80},
+        ]
+    )
     assert len(results) == 1
     assert results[0].hwnd == 1
 
 
 def test_get_windows_skips_empty_title():
-    results, _ = _run_get_windows([
-        {"hwnd": 1, "title": "Has Title"},
-        {"hwnd": 2, "title": ""},
-    ])
+    results, _ = _run_get_windows(
+        [
+            {"hwnd": 1, "title": "Has Title"},
+            {"hwnd": 2, "title": ""},
+        ]
+    )
     assert len(results) == 1
     assert results[0].hwnd == 1
 
 
 def test_get_windows_skips_excluded_process():
-    results, _ = _run_get_windows([
-        {"hwnd": 1, "title": "Chrome", "process_name": "chrome.exe"},
-        {"hwnd": 2, "title": "TextInput", "process_name": "textinputhost.exe"},
-    ])
+    results, _ = _run_get_windows(
+        [
+            {"hwnd": 1, "title": "Chrome", "process_name": "chrome.exe"},
+            {"hwnd": 2, "title": "TextInput", "process_name": "textinputhost.exe"},
+        ]
+    )
     assert len(results) == 1
     assert results[0].hwnd == 1
 
@@ -381,27 +413,34 @@ def test_get_windows_extra_filter_rejects_window():
     def _reject_two(hwnd: int, title: str, process_name: str) -> bool:
         return hwnd != 2
 
-    results, _ = _run_get_windows([
-        {"hwnd": 1, "title": "Allowed"},
-        {"hwnd": 2, "title": "Blocked"},
-    ], extra_filters=[_reject_two])
+    results, _ = _run_get_windows(
+        [
+            {"hwnd": 1, "title": "Allowed"},
+            {"hwnd": 2, "title": "Blocked"},
+        ],
+        extra_filters=[_reject_two],
+    )
     assert len(results) == 1
     assert results[0].hwnd == 1
 
 
 def test_get_windows_skips_ghost_window():
-    results, _ = _run_get_windows([
-        {"hwnd": 1, "title": "Real", "desktop_number": 1},
-        {"hwnd": 2, "title": "Ghost", "desktop_number": -1},
-    ])
+    results, _ = _run_get_windows(
+        [
+            {"hwnd": 1, "title": "Real", "desktop_number": 1},
+            {"hwnd": 2, "title": "Ghost", "desktop_number": -1},
+        ]
+    )
     assert len(results) == 1
     assert results[0].hwnd == 1
 
 
 def test_get_windows_no_exe_path_bypasses_icon_cache():
-    results, provider = _run_get_windows([
-        {"hwnd": 1, "title": "Unknown", "process_name": "unknown", "exe_path": ""},
-    ])
+    results, provider = _run_get_windows(
+        [
+            {"hwnd": 1, "title": "Unknown", "process_name": "unknown", "exe_path": ""},
+        ]
+    )
     assert len(results) == 1
     assert len(provider._icon_cache) == 0
 
@@ -411,9 +450,7 @@ def test_get_windows_evicts_oldest_cache_entry_when_full():
 
     from windows_navigator.provider import _ICON_CACHE_MAX
 
-    provider = RealWindowProvider(
-        assign_desktops=lambda h: ({1: 1}, {1: True})
-    )
+    provider = RealWindowProvider(assign_desktops=lambda h: ({1: 1}, {1: True}))
     for i in range(_ICON_CACHE_MAX):
         provider._icon_cache[f"c:\\app{i}.exe"] = _FALLBACK_ICON.copy()
     first_key = next(iter(provider._icon_cache))
@@ -428,12 +465,17 @@ def test_get_windows_evicts_oldest_cache_entry_when_full():
     win32gui.GetWindowLong.return_value = 0
     win32gui.GetWindowText.return_value = "New App"
 
-    with patch.dict(sys.modules, {"win32gui": win32gui, "win32con": win32con,
-                                   "win32process": win32process}):
-        with patch("windows_navigator.provider.RealWindowProvider._get_process_info",
-                   return_value=("new_app.exe", "C:\\new_app.exe")):
-            with patch("windows_navigator.provider.IconExtractor.extract",
-                       return_value=_FALLBACK_ICON.copy()):
+    with patch.dict(
+        sys.modules, {"win32gui": win32gui, "win32con": win32con, "win32process": win32process}
+    ):
+        with patch(
+            "windows_navigator.provider.RealWindowProvider._get_process_info",
+            return_value=("new_app.exe", "C:\\new_app.exe"),
+        ):
+            with patch(
+                "windows_navigator.provider.IconExtractor.extract",
+                return_value=_FALLBACK_ICON.copy(),
+            ):
                 provider.get_windows()
 
     assert len(provider._icon_cache) == _ICON_CACHE_MAX
@@ -455,8 +497,7 @@ def test_get_process_info_returns_name_and_path():
     win32process.GetWindowThreadProcessId.return_value = (0, 1234)
 
     with patch.dict(sys.modules, {"win32api": win32api, "win32con": win32con}):
-        with patch("windows_navigator.provider._query_exe_path",
-                   return_value="/fake/notepad.exe"):
+        with patch("windows_navigator.provider._query_exe_path", return_value="/fake/notepad.exe"):
             result = RealWindowProvider._get_process_info(42, win32process)
 
     assert result == ("notepad.exe", "/fake/notepad.exe")
@@ -575,4 +616,3 @@ def test_background_cache_keeps_last_good_cache_after_failure():
         assert second == windows  # last good list still served
     finally:
         cache.stop()
-

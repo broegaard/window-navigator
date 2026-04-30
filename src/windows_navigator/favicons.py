@@ -1,4 +1,5 @@
 """Favicon fetching with a domain-keyed LRU cache."""
+
 from __future__ import annotations
 
 import io
@@ -42,6 +43,7 @@ _CANDIDATES = [
 
 def _fetch(domain: str) -> Image | None:
     from PIL import Image  # deferred — not available on Linux test runner
+
     for template in _CANDIDATES:
         url = template.format(domain=domain)
         try:

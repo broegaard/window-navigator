@@ -1,4 +1,5 @@
 """Tests for app.py — hotkey dispatch config and queue drain logic."""
+
 from __future__ import annotations
 
 import queue
@@ -203,7 +204,7 @@ def test_current_desktop_ref_not_updated_when_no_valid_desktop():
     q.put(1)
 
     windows = [
-        _make_window(desktop_number=0, is_current=True),   # desktop 0 — excluded from tracking
+        _make_window(desktop_number=0, is_current=True),  # desktop 0 — excluded from tracking
         _make_window(desktop_number=2, is_current=False),  # not current
     ]
     provider = MagicMock()
@@ -259,4 +260,3 @@ def test_tray_updated_with_zero_when_no_current_desktop():
     _process_show_queue(q, provider, MagicMock(), tray, [0])
 
     tray.update.assert_called_once_with(0)
-

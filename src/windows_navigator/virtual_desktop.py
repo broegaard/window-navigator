@@ -160,7 +160,8 @@ class _RawVDManager:
             self._VTBL_IS_ON_CURRENT,
             ctypes.HRESULT,  # type: ignore[attr-defined]
             (ctypes.wintypes.HWND, ctypes.POINTER(ctypes.c_int)),
-            hwnd, ctypes.byref(result),
+            hwnd,
+            ctypes.byref(result),
         )
         return True if hr != 0 else bool(result.value)
 
@@ -170,7 +171,8 @@ class _RawVDManager:
             self._VTBL_GET_DESKTOP_ID,
             ctypes.HRESULT,  # type: ignore[attr-defined]
             (ctypes.wintypes.HWND, ctypes.POINTER(_GUID)),
-            hwnd, ctypes.byref(guid),
+            hwnd,
+            ctypes.byref(guid),
         )
         return None if hr != 0 else _guid_to_str(guid)
 
@@ -180,7 +182,8 @@ class _RawVDManager:
             self._VTBL_MOVE_TO_DESKTOP,
             ctypes.HRESULT,  # type: ignore[attr-defined]
             (ctypes.wintypes.HWND, ctypes.POINTER(_GUID)),
-            hwnd, ctypes.byref(guid),
+            hwnd,
+            ctypes.byref(guid),
         )
         return hr == 0
 

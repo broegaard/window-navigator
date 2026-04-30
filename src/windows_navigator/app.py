@@ -60,12 +60,18 @@ def _start_flash_monitor(flashing: set[int]) -> None:
 
             class _WNDCLS(ctypes.Structure):
                 _fields_ = [
-                    ("cbSize", wt.UINT), ("style", wt.UINT),
-                    ("lpfnWndProc", WNDPROC), ("cbClsExtra", ctypes.c_int),
-                    ("cbWndExtra", ctypes.c_int), ("hInstance", wt.HINSTANCE),
-                    ("hIcon", wt.HICON), ("hCursor", wt.HANDLE),
-                    ("hbrBackground", wt.HBRUSH), ("lpszMenuName", wt.LPCWSTR),
-                    ("lpszClassName", wt.LPCWSTR), ("hIconSm", wt.HICON),
+                    ("cbSize", wt.UINT),
+                    ("style", wt.UINT),
+                    ("lpfnWndProc", WNDPROC),
+                    ("cbClsExtra", ctypes.c_int),
+                    ("cbWndExtra", ctypes.c_int),
+                    ("hInstance", wt.HINSTANCE),
+                    ("hIcon", wt.HICON),
+                    ("hCursor", wt.HANDLE),
+                    ("hbrBackground", wt.HBRUSH),
+                    ("lpszMenuName", wt.LPCWSTR),
+                    ("lpszClassName", wt.LPCWSTR),
+                    ("hIconSm", wt.HICON),
                 ]
 
             wc = _WNDCLS()
@@ -76,8 +82,18 @@ def _start_flash_monitor(flashing: set[int]) -> None:
 
             # HWND_MESSAGE = (HWND)(LONG_PTR)(-3) — message-only window, no taskbar entry
             hwnd = u32.CreateWindowExW(
-                0, "WinNavFlashMon", None, 0, 0, 0, 0, 0,
-                ctypes.c_size_t(-3), None, None, None,
+                0,
+                "WinNavFlashMon",
+                None,
+                0,
+                0,
+                0,
+                0,
+                0,
+                ctypes.c_size_t(-3),
+                None,
+                None,
+                None,
             )
             if not hwnd:
                 return
@@ -88,7 +104,7 @@ def _start_flash_monitor(flashing: set[int]) -> None:
             HSHELL_DESTROYED = 2
             HSHELL_ACTIVATED = 4
             HSHELL_REDRAW = 6
-            HSHELL_FLASH = 0x8006        # HSHELL_REDRAW | HSHELL_HIGHBIT
+            HSHELL_FLASH = 0x8006  # HSHELL_REDRAW | HSHELL_HIGHBIT
             HSHELL_RUDEACTIVATED = 0x8004
 
             def _get_title(h: int) -> str:
@@ -292,10 +308,16 @@ def _run_registered_hotkey(
         _log.exception("registered-hotkey-listener thread crashed")
 
 
-_BROWSER_PROC_NAMES = frozenset({
-    "chrome.exe", "msedge.exe", "firefox.exe",
-    "brave.exe", "opera.exe", "vivaldi.exe",
-})
+_BROWSER_PROC_NAMES = frozenset(
+    {
+        "chrome.exe",
+        "msedge.exe",
+        "firefox.exe",
+        "brave.exe",
+        "opera.exe",
+        "vivaldi.exe",
+    }
+)
 
 
 def _start_tab_cache_warmer() -> None:
@@ -323,12 +345,18 @@ def _start_tab_cache_warmer() -> None:
 
             class _WNDCLS(ctypes.Structure):
                 _fields_ = [
-                    ("cbSize", wt.UINT), ("style", wt.UINT),
-                    ("lpfnWndProc", WNDPROC), ("cbClsExtra", ctypes.c_int),
-                    ("cbWndExtra", ctypes.c_int), ("hInstance", wt.HINSTANCE),
-                    ("hIcon", wt.HICON), ("hCursor", wt.HANDLE),
-                    ("hbrBackground", wt.HBRUSH), ("lpszMenuName", wt.LPCWSTR),
-                    ("lpszClassName", wt.LPCWSTR), ("hIconSm", wt.HICON),
+                    ("cbSize", wt.UINT),
+                    ("style", wt.UINT),
+                    ("lpfnWndProc", WNDPROC),
+                    ("cbClsExtra", ctypes.c_int),
+                    ("cbWndExtra", ctypes.c_int),
+                    ("hInstance", wt.HINSTANCE),
+                    ("hIcon", wt.HICON),
+                    ("hCursor", wt.HANDLE),
+                    ("hbrBackground", wt.HBRUSH),
+                    ("lpszMenuName", wt.LPCWSTR),
+                    ("lpszClassName", wt.LPCWSTR),
+                    ("hIconSm", wt.HICON),
                 ]
 
             wc = _WNDCLS()
@@ -338,8 +366,18 @@ def _start_tab_cache_warmer() -> None:
             u32.RegisterClassExW(ctypes.byref(wc))
 
             hook_hwnd = u32.CreateWindowExW(
-                0, "WinNavTabWarmer", None, 0, 0, 0, 0, 0,
-                ctypes.c_size_t(-3), None, None, None,
+                0,
+                "WinNavTabWarmer",
+                None,
+                0,
+                0,
+                0,
+                0,
+                0,
+                ctypes.c_size_t(-3),
+                None,
+                None,
+                None,
             )
             if not hook_hwnd:
                 return
@@ -373,8 +411,10 @@ def _start_tab_cache_warmer() -> None:
             def _warm(target: int) -> None:
                 try:
                     import ctypes as _ct
+
                     _ct.windll.ole32.CoInitializeEx(None, 0)  # type: ignore[attr-defined]
                     from windows_navigator.tabs import fetch_tabs
+
                     fetch_tabs(target)
                 except Exception:
                     pass
@@ -383,12 +423,18 @@ def _start_tab_cache_warmer() -> None:
 
             msg = wt.MSG()
             while u32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-                if msg.message == WM_SHELL and msg.wParam in (HSHELL_ACTIVATED, HSHELL_RUDEACTIVATED):
+                if msg.message == WM_SHELL and msg.wParam in (
+                    HSHELL_ACTIVATED,
+                    HSHELL_RUDEACTIVATED,
+                ):
                     target = int(msg.lParam)
                     if target not in _active and _proc_name(target) in _BROWSER_PROC_NAMES:
                         _active.add(target)
                         threading.Thread(
-                            target=_warm, args=(target,), daemon=True, name="tab-warmer",
+                            target=_warm,
+                            args=(target,),
+                            daemon=True,
+                            name="tab-warmer",
                         ).start()
                 u32.DispatchMessageW(ctypes.byref(msg))
 
@@ -461,8 +507,11 @@ def _start_hotkey_listener(
     """Start the overlay hotkey listener thread for the given hotkey choice."""
     target, kwargs = _hotkey_listener_config(choice)
     threading.Thread(
-        target=target, args=(show_queue, stop_event), kwargs=kwargs,
-        daemon=True, name="hotkey-listener",
+        target=target,
+        args=(show_queue, stop_event),
+        kwargs=kwargs,
+        daemon=True,
+        name="hotkey-listener",
     ).start()
 
 
@@ -485,8 +534,12 @@ def _start_move_hotkey_listener(move_queue: queue.Queue[tuple[int, int]]) -> Non
             ID_LEFT = 1
             ID_RIGHT = 2
 
-            ok_left = user32.RegisterHotKey(None, ID_LEFT, MOD_CONTROL | MOD_SHIFT | MOD_WIN, VK_LEFT)
-            ok_right = user32.RegisterHotKey(None, ID_RIGHT, MOD_CONTROL | MOD_SHIFT | MOD_WIN, VK_RIGHT)
+            ok_left = user32.RegisterHotKey(
+                None, ID_LEFT, MOD_CONTROL | MOD_SHIFT | MOD_WIN, VK_LEFT
+            )
+            ok_right = user32.RegisterHotKey(
+                None, ID_RIGHT, MOD_CONTROL | MOD_SHIFT | MOD_WIN, VK_RIGHT
+            )
 
             msg = wt.MSG()
             while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:

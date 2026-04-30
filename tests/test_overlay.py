@@ -41,8 +41,13 @@ def test_row_height_returns_row_height_for_window_info():
     from windows_navigator.overlay import _ROW_HEIGHT, _row_height
 
     w = WindowInfo(
-        hwnd=1, title="Test", process_name="app.exe", icon=None,
-        desktop_number=1, is_current_desktop=True, has_notification=False,
+        hwnd=1,
+        title="Test",
+        process_name="app.exe",
+        icon=None,
+        desktop_number=1,
+        is_current_desktop=True,
+        has_notification=False,
     )
     assert _row_height(w) == _ROW_HEIGHT
 
@@ -142,6 +147,7 @@ def test_fetch_tabs_bg_non_wt_uses_parent_icon_when_no_domain():
             pass  # different path
         elif w.icon is not None:
             from PIL import Image as _PI
+
             tab.icon = w.icon.resize((_TAB_ICON_SIZE, _TAB_ICON_SIZE), _PI.LANCZOS)
 
     assert tabs[0].icon is mock_resized
@@ -155,8 +161,9 @@ def test_fetch_tabs_bg_wt_uses_profile_icon():
 
     mock_parent_icon = MagicMock()
     mock_wt_icon = MagicMock()
-    w = WindowInfo(hwnd=1, title="Windows Terminal", process_name="WindowsTerminal.exe",
-                   icon=mock_parent_icon)
+    w = WindowInfo(
+        hwnd=1, title="Windows Terminal", process_name="WindowsTerminal.exe", icon=mock_parent_icon
+    )
     tab = TabInfo(name="PowerShell", hwnd=1, index=0, domain="")
 
     with MagicMock() as mock_mod:
@@ -170,6 +177,7 @@ def test_fetch_tabs_bg_wt_uses_profile_icon():
             pass
         if tab.icon is None and w.icon is not None:
             from PIL import Image as _PI
+
             tab.icon = w.icon.resize((_TAB_ICON_SIZE, _TAB_ICON_SIZE), _PI.LANCZOS)
 
     assert tab.icon is mock_wt_icon
@@ -185,14 +193,16 @@ def test_fetch_tabs_bg_wt_falls_back_to_parent_icon_when_no_profile():
     mock_resized = MagicMock()
     mock_parent_icon.resize.return_value = mock_resized
 
-    w = WindowInfo(hwnd=1, title="Windows Terminal", process_name="WindowsTerminal.exe",
-                   icon=mock_parent_icon)
+    w = WindowInfo(
+        hwnd=1, title="Windows Terminal", process_name="WindowsTerminal.exe", icon=mock_parent_icon
+    )
     tab = TabInfo(name="custom-shell", hwnd=1, index=0, domain="")
 
     # Simulate fetch_wt_tab_icon returning None (no matching profile)
     tab.icon = None
     if tab.icon is None and w.icon is not None:
         from PIL import Image as _PILImage
+
         tab.icon = w.icon.resize((_TAB_ICON_SIZE, _TAB_ICON_SIZE), _PILImage.LANCZOS)
 
     assert tab.icon is mock_resized
