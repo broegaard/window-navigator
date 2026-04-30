@@ -9,7 +9,7 @@ import threading
 import time
 import tkinter as tk
 
-from windows_navigator.config import HotkeyChoice, load_hotkey
+from windows_navigator.config import HotkeyChoice, load_expand_on_startup, load_hotkey, save_expand_on_startup, save_hotkey
 
 _log = logging.getLogger(__name__)
 
@@ -586,7 +586,12 @@ def main() -> None:
     _start_tab_cache_warmer()
 
     provider = BackgroundWindowCache(RealWindowProvider(flashing=flashing))
-    overlay = NavigatorOverlay(root, on_activate=activate_window, on_move=move_and_activate)
+    overlay = NavigatorOverlay(
+        root,
+        on_activate=activate_window,
+        on_move=move_and_activate,
+        expand_on_startup=load_expand_on_startup(),
+    )
     show_queue: queue.Queue[int] = queue.Queue()
     move_queue: queue.Queue[tuple[int, int]] = queue.Queue()
 
@@ -605,16 +610,27 @@ def main() -> None:
     _hotkey_stop: list[threading.Event] = [threading.Event()]
     _start_hotkey_listener(show_queue, _current_hotkey[0], _hotkey_stop[0])
 
-    def _on_hotkey_saved(new_choice: HotkeyChoice) -> None:
+    def _on_settings_saved(new_choice: HotkeyChoice, new_expand: bool) -> None:
+        save_hotkey(new_choice)
+        save_expand_on_startup(new_expand)
         old_stop = _hotkey_stop[0]
         _hotkey_stop[0] = threading.Event()
         old_stop.set()
         _current_hotkey[0] = new_choice
+        _current_expand[0] = new_expand
         _start_hotkey_listener(show_queue, new_choice, _hotkey_stop[0])
+        overlay.set_expand_on_startup(new_expand)
+
+    _current_expand: list[bool] = [load_expand_on_startup()]
 
     def _open_settings() -> None:
         # pystray calls this from its own thread; marshal to Tk main thread.
-        root.after(0, lambda: open_settings_window(root, _current_hotkey[0], _on_hotkey_saved))
+        root.after(
+            0,
+            lambda: open_settings_window(
+                root, _current_hotkey[0], _current_expand[0], _on_settings_saved
+            ),
+        )
 
     tray = TrayIcon(on_exit=root.quit, on_settings=_open_settings)
     initial_desktop = get_current_desktop_number()

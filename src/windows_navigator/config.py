@@ -24,19 +24,51 @@ def _config_path() -> Path:
     return base / "windows-navigator" / "config.toml"
 
 
-def load_hotkey() -> HotkeyChoice:
+def _load_raw() -> dict:
+    """Read the config file and return its contents as a dict. Returns {} on any error."""
     try:
         with open(_config_path(), "rb") as f:
-            data = tomllib.load(f)
-        return HotkeyChoice(data.get("hotkey", HotkeyChoice.DOUBLE_TAP_CTRL.value))
+            return tomllib.load(f)
     except FileNotFoundError:
-        return HotkeyChoice.DOUBLE_TAP_CTRL
+        return {}
     except Exception:
-        log.warning("Failed to load config from %s", _config_path(), exc_info=True)
+        log.warning("Failed to parse config from %s", _config_path(), exc_info=True)
+        return {}
+
+
+def _save_raw(data: dict) -> None:
+    """Write config dict back to the TOML file. Only str and bool values are supported."""
+    path = _config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for key, value in data.items():
+        if isinstance(value, bool):
+            lines.append(f"{key} = {str(value).lower()}\n")
+        elif isinstance(value, str):
+            lines.append(f'{key} = "{value}"\n')
+        else:
+            log.warning("Skipping unsupported config key %r with type %s", key, type(value).__name__)
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def load_hotkey() -> HotkeyChoice:
+    try:
+        return HotkeyChoice(_load_raw().get("hotkey", HotkeyChoice.DOUBLE_TAP_CTRL.value))
+    except Exception:
         return HotkeyChoice.DOUBLE_TAP_CTRL
 
 
 def save_hotkey(choice: HotkeyChoice) -> None:
-    path = _config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'hotkey = "{choice.value}"\n', encoding="utf-8")
+    data = _load_raw()
+    data["hotkey"] = choice.value
+    _save_raw(data)
+
+
+def load_expand_on_startup() -> bool:
+    return bool(_load_raw().get("expand_on_startup", False))
+
+
+def save_expand_on_startup(value: bool) -> None:
+    data = _load_raw()
+    data["expand_on_startup"] = value
+    _save_raw(data)

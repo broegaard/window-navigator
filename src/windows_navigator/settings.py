@@ -1,11 +1,11 @@
-"""Settings window — hotkey selection."""
+"""Settings window — hotkey selection and startup behaviour."""
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
-from windows_navigator.config import HotkeyChoice, save_hotkey
+from windows_navigator.config import HotkeyChoice
 
 _LABELS: dict[HotkeyChoice, str] = {
     HotkeyChoice.DOUBLE_TAP_CTRL: "Double-tap Ctrl",
@@ -19,9 +19,10 @@ _LABELS: dict[HotkeyChoice, str] = {
 def open_settings_window(
     root: tk.Tk,
     current: HotkeyChoice,
-    on_save: Callable[[HotkeyChoice], None],
+    current_expand: bool,
+    on_save: Callable[[HotkeyChoice, bool], None],
 ) -> None:
-    """Open a modal settings window for choosing the global hotkey."""
+    """Open a modal settings window for choosing the global hotkey and startup behaviour."""
     win = tk.Toplevel(root)
     win.title("Windows Navigator — Settings")
     win.resizable(False, False)
@@ -40,10 +41,16 @@ def open_settings_window(
             anchor="w", pady=2
         )
 
+    ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=(8, 4))
+    ttk.Label(frame, text="Startup behaviour", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+
+    expand_var = tk.BooleanVar(value=current_expand)
+    ttk.Checkbutton(frame, text="Expand tabs on startup", variable=expand_var).pack(
+        anchor="w", pady=(4, 0)
+    )
+
     def _save() -> None:
-        chosen = HotkeyChoice(var.get())
-        save_hotkey(chosen)
-        on_save(chosen)
+        on_save(HotkeyChoice(var.get()), expand_var.get())
         win.destroy()
 
     btn_row = ttk.Frame(frame)
