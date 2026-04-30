@@ -5,7 +5,6 @@ from __future__ import annotations
 import windows_navigator.overlay_layout as _ol
 from windows_navigator.overlay_layout import _PALETTE, _colors
 
-
 # ---------------------------------------------------------------------------
 # _PALETTE structure
 # ---------------------------------------------------------------------------

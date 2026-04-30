@@ -407,9 +407,9 @@ def test_get_windows_no_exe_path_bypasses_icon_cache():
 
 
 def test_get_windows_evicts_oldest_cache_entry_when_full():
-    from windows_navigator.provider import _ICON_CACHE_MAX
-
     import sys
+
+    from windows_navigator.provider import _ICON_CACHE_MAX
 
     provider = RealWindowProvider(
         assign_desktops=lambda h: ({1: 1}, {1: True})
@@ -477,7 +477,6 @@ def test_get_process_info_returns_empty_strings_on_exception():
 
 def test_background_cache_serves_wrapped_list():
     """get_windows() returns the list produced by the wrapped provider."""
-    import time
     from windows_navigator.provider import BackgroundWindowCache
 
     windows = [MagicMock()]
@@ -525,6 +524,7 @@ def test_background_cache_returns_list_copy():
 def test_background_cache_request_refresh_triggers_refetch():
     """request_refresh() causes the background thread to re-call wrapped.get_windows()."""
     import time
+
     from windows_navigator.provider import BackgroundWindowCache
 
     wrapped = MagicMock()
@@ -557,6 +557,7 @@ def test_background_cache_handles_exception_in_wrapped():
 def test_background_cache_keeps_last_good_cache_after_failure():
     """After a successful refresh followed by a failed one, the last good list is kept."""
     import time
+
     from windows_navigator.provider import BackgroundWindowCache
 
     windows = [MagicMock()]

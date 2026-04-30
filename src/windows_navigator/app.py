@@ -9,7 +9,13 @@ import threading
 import time
 import tkinter as tk
 
-from windows_navigator.config import HotkeyChoice, load_expand_on_startup, load_hotkey, save_expand_on_startup, save_hotkey
+from windows_navigator.config import (
+    HotkeyChoice,
+    load_expand_on_startup,
+    load_hotkey,
+    save_expand_on_startup,
+    save_hotkey,
+)
 
 _log = logging.getLogger(__name__)
 

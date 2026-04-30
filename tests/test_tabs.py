@@ -1,13 +1,18 @@
 """Tests for tabs.py — UIA tab discovery helpers."""
 
+import json
 from unittest.mock import MagicMock, patch
 
-from windows_navigator.models import TabInfo
-import json
-
 import windows_navigator.tabs as tabs_module
+from windows_navigator.models import TabInfo
 from windows_navigator.tabs import (
     _cache_file_path,
+    _collect_tab_items,
+    _domain_from_full_description,
+    _domain_from_url,
+    _find_address_bar_url,
+    _get_children,
+    _is_tab_selected,
     _load_tab_domain_cache,
     _save_tab_domain_cache,
     _UIA_DocumentControlTypeId,
@@ -16,17 +21,9 @@ from windows_navigator.tabs import (
     _UIA_LegacyIAccessibleStatePropertyId,
     _UIA_SelectionItemIsSelectedPropertyId,
     _UIA_TabItemControlTypeId,
-    _STATE_SYSTEM_SELECTED,
-    _collect_tab_items,
-    _domain_from_full_description,
-    _domain_from_url,
-    _find_address_bar_url,
-    _get_children,
-    _is_tab_selected,
     fetch_tabs,
     select_tab,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constants

@@ -4,10 +4,10 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 from windows_navigator.virtual_desktop import (
-    _ManagerCache,
     _get_registry_desktop_order,
     _guid_to_str,
     _make_guid,
+    _ManagerCache,
     assign_desktop_numbers,
     get_current_desktop_guid,
     get_current_desktop_number,
