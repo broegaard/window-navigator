@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes
+import threading
 from typing import Protocol
 
 # IVirtualDesktopManager
@@ -90,11 +91,18 @@ class _ManagerCache:
         return self._manager
 
 
-_manager_cache = _ManagerCache()
+_thread_local = threading.local()
 
 
 def _get_manager() -> _VirtualDesktopManager | None:
-    return _manager_cache.get()
+    """Return the per-thread IVirtualDesktopManager instance, initialising COM on first use.
+
+    Each thread gets its own COM apartment and interface pointer — sharing raw vtable
+    pointers across STA threads is unsafe, so _ManagerCache is kept thread-local.
+    """
+    if not hasattr(_thread_local, "_manager_cache"):
+        _thread_local._manager_cache = _ManagerCache()
+    return _thread_local._manager_cache.get()
 
 
 def _try_raw_ctypes() -> _VirtualDesktopManager | None:
