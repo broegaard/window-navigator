@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,7 @@ _WT_SOURCE_EXE: dict[str, str] = {
 _UNSET: object = object()
 _settings_file: Path | None | object = _UNSET
 _profile_cache: tuple[float, dict[str, Image | None]] | None = None  # (mtime, map)
+_profile_cache_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -255,22 +257,25 @@ def _get_profile_map() -> dict[str, Image | None]:
     """Return the profile map, rebuilding it when the settings file mtime changes."""
     global _settings_file, _profile_cache
 
-    if _settings_file is _UNSET:
-        _settings_file = _find_settings()
+    with _profile_cache_lock:
+        if _settings_file is _UNSET:
+            _settings_file = _find_settings()
 
-    if _settings_file is None:
-        return {}
+        if _settings_file is None:
+            return {}
 
-    try:
-        mtime = _settings_file.stat().st_mtime
-    except OSError:
-        return {}
+        try:
+            mtime = _settings_file.stat().st_mtime
+        except OSError:
+            return {}
 
-    if _profile_cache is not None and _profile_cache[0] == mtime:
-        return _profile_cache[1]
+        if _profile_cache is not None and _profile_cache[0] == mtime:
+            return _profile_cache[1]
 
-    profile_map = _build_profile_map(_settings_file)
-    _profile_cache = (mtime, profile_map)
+    # Build outside lock — file I/O may be slow; the worst case is duplicate rebuilds.
+    profile_map = _build_profile_map(_settings_file)  # type: ignore[arg-type]
+    with _profile_cache_lock:
+        _profile_cache = (mtime, profile_map)  # type: ignore[possibly-undefined]
     return profile_map
 
 

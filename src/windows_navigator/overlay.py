@@ -61,7 +61,6 @@ _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
 _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
 _COUNT_BAR_H = 18  # height of the result-count footer strip
 
-_TAB_FETCH_TIMEOUT = 3.0  # seconds per window before moving on
 
 
 def init_scale(scale: float) -> None:
@@ -144,6 +143,7 @@ class NavigatorOverlay:
         self._fetch_ms: float | None = None
         self._closing: bool = False  # True while handing focus to a target window
         self._fetch_cancel: threading.Event | None = None
+        self._fetch_gen: int = 0  # incremented each show(); guards stale worker callbacks
 
     # ------------------------------------------------------------------
     # Public API
@@ -180,8 +180,11 @@ class NavigatorOverlay:
         if self._fetch_cancel is not None:
             self._fetch_cancel.set()
         self._fetch_cancel = threading.Event()
+        self._fetch_gen += 1
         threading.Thread(
-            target=self._fetch_tabs_bg, args=(list(windows), self._fetch_cancel), daemon=True
+            target=self._fetch_tabs_bg,
+            args=(list(windows), self._fetch_cancel, self._fetch_gen),
+            daemon=True,
         ).start()
         self._build_ui()
 
@@ -644,75 +647,76 @@ class NavigatorOverlay:
             self._resize_to_fit()
         return "break"
 
-    def _fetch_tabs_bg(self, windows: list[WindowInfo], cancel: threading.Event) -> None:
-        """Background thread: fetch UIA tabs for each window and post results to main thread."""
+    def _fetch_tabs_bg(self, windows: list[WindowInfo], cancel: threading.Event, gen: int) -> None:
+        """Launch one daemon thread per window to fetch UIA tabs and favicons in parallel."""
         try:
             from windows_navigator.tabs import fetch_tabs
-            for w in windows:
-                if cancel.is_set():
-                    break
-                if w.process_name.upper() == "OUTLOOK.EXE":
-                    continue
-                result: list[TabInfo] = []
+        except ImportError:
+            return
 
-                def _do(hwnd: int = w.hwnd, out: list = result) -> None:
+        sem = threading.Semaphore(8)  # cap concurrent UIA + network threads
+
+        def _fetch_one(w: WindowInfo) -> None:
+            with sem:
+                if cancel.is_set():
+                    return
+                result: list[TabInfo] = []
+                try:
+                    import ctypes as _ct
+                    _ct.windll.ole32.CoInitializeEx(None, 0)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                try:
+                    result.extend(fetch_tabs(w.hwnd) or [])
+                except Exception:
+                    pass
+                finally:
                     try:
                         import ctypes as _ct
-                        _ct.windll.ole32.CoInitializeEx(None, 0)  # type: ignore[attr-defined]
+                        _ct.windll.ole32.CoUninitialize()  # type: ignore[attr-defined]
                     except Exception:
                         pass
-                    try:
-                        out.extend(fetch_tabs(hwnd) or [])
-                    except Exception:
-                        pass
-                    finally:
-                        try:
-                            import ctypes as _ct
-                            _ct.windll.ole32.CoUninitialize()  # type: ignore[attr-defined]
-                        except Exception:
-                            pass
+                if cancel.is_set() or not result:
+                    return
+                try:
+                    from windows_navigator.favicons import fetch_favicon
+                    _is_wt = w.process_name.upper() == "WINDOWSTERMINAL.EXE"
+                    for tab in result:
+                        if cancel.is_set():
+                            break
+                        if tab.domain:
+                            tab.icon = fetch_favicon(tab.domain)
+                        else:
+                            if _is_wt:
+                                try:
+                                    from windows_navigator.wt_icons import fetch_wt_tab_icon
+                                    tab.icon = fetch_wt_tab_icon(tab.name)
+                                except Exception:
+                                    pass
+                            if tab.icon is None and w.icon is not None:
+                                try:
+                                    from PIL import Image as _PILImage
+                                    tab.icon = w.icon.resize(
+                                        (_TAB_ICON_SIZE, _TAB_ICON_SIZE), _PILImage.LANCZOS
+                                    )
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+                if cancel.is_set() or self._controller is None or self._fetch_gen != gen:
+                    return
+                self._root.after(0, self._on_tabs_fetched, w.hwnd, result, gen)
 
-                t = threading.Thread(target=_do, daemon=True)
-                t.start()
-                t.join(timeout=_TAB_FETCH_TIMEOUT)
-                if cancel.is_set():
-                    break
-                if result:
-                    try:
-                        from windows_navigator.favicons import fetch_favicon
-                        _is_wt = w.process_name.upper() == "WINDOWSTERMINAL.EXE"
-                        for tab in result:
-                            if cancel.is_set():
-                                break
-                            if tab.domain:
-                                tab.icon = fetch_favicon(tab.domain)
-                            else:
-                                if _is_wt:
-                                    try:
-                                        from windows_navigator.wt_icons import fetch_wt_tab_icon
-                                        tab.icon = fetch_wt_tab_icon(tab.name)
-                                    except Exception:
-                                        pass
-                                if tab.icon is None and w.icon is not None:
-                                    try:
-                                        from PIL import Image as _PILImage
-                                        tab.icon = w.icon.resize(
-                                            (_TAB_ICON_SIZE, _TAB_ICON_SIZE), _PILImage.LANCZOS
-                                        )
-                                    except Exception:
-                                        pass
-                    except Exception:
-                        pass
-                if cancel.is_set():
-                    break
-                if result and self._controller is not None:
-                    self._root.after(0, self._on_tabs_fetched, w.hwnd, result)
-        except Exception:
-            pass
+        for w in windows:
+            if cancel.is_set():
+                break
+            if w.process_name.upper() == "OUTLOOK.EXE":
+                continue
+            threading.Thread(target=_fetch_one, args=(w,), daemon=True).start()
 
-    def _on_tabs_fetched(self, hwnd: int, tabs: list[TabInfo]) -> None:
+    def _on_tabs_fetched(self, hwnd: int, tabs: list[TabInfo], gen: int) -> None:
         """Main-thread callback: store fetched tabs and refresh if the window is expanded."""
-        if self._controller is None or self._canvas is None:
+        if self._controller is None or self._canvas is None or self._fetch_gen != gen:
             return
         self._controller.set_tabs(hwnd, tabs)
         if self._controller.is_expanded(hwnd):

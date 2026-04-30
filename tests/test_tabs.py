@@ -622,7 +622,7 @@ def test_save_and_load_roundtrip(tmp_path):
     tabs_module._tab_domain_cache["Gmail"] = "mail.google.com"
 
     with patch("windows_navigator.tabs._cache_file_path", return_value=tmp_path / "tab_domain_cache.json"):
-        _save_tab_domain_cache()
+        _save_tab_domain_cache(dict(tabs_module._tab_domain_cache))
         tabs_module._tab_domain_cache.clear()
         _load_tab_domain_cache()
 

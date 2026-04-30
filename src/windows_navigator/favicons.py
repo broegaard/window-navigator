@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import threading
 import urllib.request
 from collections import OrderedDict
 from typing import TYPE_CHECKING
@@ -10,6 +11,7 @@ if TYPE_CHECKING:
     from PIL.Image import Image
 
 _cache: OrderedDict[str, Image | None] = OrderedDict()
+_cache_lock = threading.Lock()
 _CACHE_MAX = 128
 _FAVICON_SIZE = 16
 _TIMEOUT = 5.0
@@ -17,14 +19,19 @@ _HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 def fetch_favicon(domain: str) -> Image | None:
-    if domain in _cache:
+    with _cache_lock:
+        if domain in _cache:
+            _cache.move_to_end(domain)
+            return _cache[domain]
+    # Network fetch outside the lock to avoid blocking other threads.
+    result = _fetch(domain)
+    with _cache_lock:
+        if domain not in _cache:
+            _cache[domain] = result
+            if len(_cache) > _CACHE_MAX:
+                _cache.popitem(last=False)
         _cache.move_to_end(domain)
         return _cache[domain]
-    result = _fetch(domain)
-    _cache[domain] = result
-    if len(_cache) > _CACHE_MAX:
-        _cache.popitem(last=False)
-    return result
 
 
 _CANDIDATES = [
