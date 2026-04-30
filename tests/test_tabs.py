@@ -523,6 +523,7 @@ def _make_firefox_tree(tab_names: list[str], active_index: int, active_url: str)
 
 
 def test_fetch_tabs_firefox_fallback_assigns_domain_to_active_tab():
+    tabs_module._tab_domain_cache.clear()
     # Firefox URL bar shows bare host+path without scheme
     mock_uia = _make_firefox_tree(
         ["Gmail", "New Tab", "DR News"],
@@ -540,6 +541,7 @@ def test_fetch_tabs_firefox_fallback_assigns_domain_to_active_tab():
 
 
 def test_fetch_tabs_firefox_fallback_no_domain_when_no_url_bar():
+    tabs_module._tab_domain_cache.clear()
     mock_uia, _ = _make_uia_tree(["Gmail", "New Tab"])  # no FullDesc, no URL bar
 
     with patch("windows_navigator.tabs._create_uia", return_value=mock_uia):
@@ -575,7 +577,8 @@ def test_fetch_tabs_domain_cache_restores_domain_for_inactive_tab():
         active_index=0,
         active_url="www.dr.dk/nyheder",
     )
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia_1):
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia_1), \
+         patch("windows_navigator.tabs._save_tab_domain_cache"):
         fetch_tabs(hwnd=10)
 
     # Second open: Gmail is now active. DR News is inactive → no URL bar domain.
@@ -584,7 +587,8 @@ def test_fetch_tabs_domain_cache_restores_domain_for_inactive_tab():
         active_index=1,
         active_url="mail.google.com",
     )
-    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia_2):
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia_2), \
+         patch("windows_navigator.tabs._save_tab_domain_cache"):
         result = fetch_tabs(hwnd=10)
 
     dr_tab = next(t for t in result if t.name == "DR News")
