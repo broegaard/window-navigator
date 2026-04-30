@@ -119,6 +119,7 @@ class NavigatorOverlay:
         on_activate: Callable[[int], None],
         on_move: Callable[[int], None],
         controller_factory: Callable[[list[WindowInfo]], OverlayControllerProtocol] | None = None,
+        expand_on_startup: bool = False,
     ) -> None:
         self._root = root
         self._on_activate = on_activate
@@ -126,6 +127,7 @@ class NavigatorOverlay:
         self._controller_factory: Callable[[list[WindowInfo]], OverlayControllerProtocol] = (
             controller_factory if controller_factory is not None else OverlayController
         )
+        self._expand_on_startup: bool = expand_on_startup
         self._top: tk.Toplevel | None = None
         self._controller: OverlayControllerProtocol | None = None
         self._canvas: tk.Canvas | None = None
@@ -148,6 +150,10 @@ class NavigatorOverlay:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def set_expand_on_startup(self, value: bool) -> None:
+        """Update the expand-on-startup setting (takes effect on the next show())."""
+        self._expand_on_startup = value
 
     def show(
         self,
@@ -360,6 +366,8 @@ class NavigatorOverlay:
         self._top = top
         # Apply initial desktop badge and controller filter.
         self._set_query_state([self._initial_desktop] if self._initial_desktop else [], "")
+        if self._expand_on_startup:
+            self._controller.toggle_all_expansions()
         self._entry.icursor(tk.END)
         self._position_window()
         top.deiconify()
@@ -417,13 +425,20 @@ class NavigatorOverlay:
                         )
                     except Exception:
                         pass
+                if item.is_active:
+                    dot_x = _ICON_PAD_X + _TAB_ICON_SIZE + 8
+                    dot_y = y0 + rh // 2
+                    self._canvas.create_oval(
+                        dot_x - 3, dot_y - 3, dot_x + 3, dot_y + 3,
+                        fill=c["tab_active"], outline="",
+                    )
                 self._canvas.create_text(
                     _TEXT_X,
                     y0 + rh // 2,
                     anchor="w",
                     text=item.name,
-                    fill=c["title_fg"],
-                    font=("Segoe UI", 9),
+                    fill=c["tab_active"] if item.is_active else c["title_fg"],
+                    font=("Segoe UI", 9, "bold") if item.is_active else ("Segoe UI", 9),
                     width=canvas_w - _TEXT_X - 8,
                 )
                 continue

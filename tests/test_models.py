@@ -101,3 +101,19 @@ def test_tab_info_hwnd_is_parent_window():
     parent_hwnd = 999
     t = TabInfo(name="Some Tab", hwnd=parent_hwnd, index=5)
     assert t.hwnd == parent_hwnd
+
+
+def test_tab_info_is_active_defaults_to_false():
+    t = TabInfo(name="Tab A", hwnd=1, index=0)
+    assert t.is_active is False
+
+
+def test_tab_info_is_active_can_be_set():
+    t = TabInfo(name="Tab A", hwnd=1, index=0, is_active=True)
+    assert t.is_active is True
+
+
+def test_tab_info_inequality_by_is_active():
+    t1 = TabInfo(name="Tab A", hwnd=1, index=0, is_active=False)
+    t2 = TabInfo(name="Tab A", hwnd=1, index=0, is_active=True)
+    assert t1 != t2

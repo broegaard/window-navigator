@@ -240,6 +240,34 @@ def test_fetch_tabs_happy_path_returns_tab_infos():
     assert result[1].name == "Tab B" and result[1].hwnd == 42 and result[1].index == 1
 
 
+def test_fetch_tabs_marks_active_tab():
+    """fetch_tabs sets is_active=True only on the tab where _is_tab_selected returns True."""
+    mock_uia, tab_elements = _make_uia_tree(["Tab A", "Tab B", "Tab C"])
+
+    def _is_selected_side_effect(el):
+        return el is tab_elements[1]
+
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia), \
+         patch("windows_navigator.tabs._is_tab_selected", side_effect=_is_selected_side_effect):
+        result = fetch_tabs(hwnd=42)
+
+    assert len(result) == 3
+    assert result[0].is_active is False
+    assert result[1].is_active is True
+    assert result[2].is_active is False
+
+
+def test_fetch_tabs_is_active_false_when_none_selected():
+    """If no tab reports as selected, all tabs have is_active=False."""
+    mock_uia, _ = _make_uia_tree(["Tab A", "Tab B"])
+
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia), \
+         patch("windows_navigator.tabs._is_tab_selected", return_value=False):
+        result = fetch_tabs(hwnd=42)
+
+    assert all(not t.is_active for t in result)
+
+
 def test_select_tab_happy_path_calls_select():
     mock_uia, tab_elements = _make_uia_tree(["Tab A"])
     mock_pattern = MagicMock()

@@ -218,7 +218,8 @@ def fetch_tabs(hwnd: int) -> list[TabInfo]:
                 name = el.GetCurrentPropertyValue(_UIA_NamePropertyId) or ""
                 raw_domain = el.GetCurrentPropertyValue(_UIA_FullDescriptionPropertyId)
                 domain = _domain_from_full_description(raw_domain)
-                result.append(TabInfo(name=str(name), hwnd=hwnd, index=idx, domain=domain))
+                is_active = _is_tab_selected(el)
+                result.append(TabInfo(name=str(name), hwnd=hwnd, index=idx, domain=domain, is_active=is_active))
                 result_elements.append(el)
             except Exception:
                 pass

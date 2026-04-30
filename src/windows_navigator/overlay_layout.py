@@ -20,6 +20,7 @@ _PALETTE: dict[str, dict[str, str]] = {
         "entry_bg": "#313244",
         "entry_fg": "#cdd6f4",
         "border": "#45475a",
+        "tab_active": "#89b4fa",  # accent blue for active-tab indicator
     },
     "light": {
         "bg": "#f5f5f5",
@@ -31,6 +32,7 @@ _PALETTE: dict[str, dict[str, str]] = {
         "entry_bg": "#ffffff",
         "entry_fg": "#1e1e2e",
         "border": "#bcc0cc",
+        "tab_active": "#1e66f5",  # accent blue for active-tab indicator
     },
 }
 

@@ -27,3 +27,4 @@ class TabInfo:
     index: int  # 0-based position in parent's TabItem list; used to re-fetch on select
     domain: str = ""
     icon: Image | None = field(default=None, repr=False)
+    is_active: bool = False  # True if this is the currently selected tab
