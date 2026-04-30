@@ -12,6 +12,7 @@ _LABELS: dict[HotkeyChoice, str] = {
     HotkeyChoice.WIN_ALT_SPACE: "Win + Alt + Space",
     HotkeyChoice.CTRL_SHIFT_SPACE: "Ctrl + Shift + Space",
     HotkeyChoice.CTRL_DOUBLE_TAP_SHIFT: "Hold Ctrl, double-tap Shift",
+    HotkeyChoice.SHIFT_DOUBLE_TAP_CTRL: "Hold Shift, double-tap Ctrl",
 }
 
 

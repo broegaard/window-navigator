@@ -16,6 +16,7 @@ from windows_navigator.app import (  # noqa: E402
     _HOTKEY_ID_CTRL_SHIFT_SPACE,
     _HOTKEY_ID_DOUBLE_TAP_CTRL,
     _HOTKEY_ID_DOUBLE_TAP_SHIFT,
+    _HOTKEY_ID_SHIFT_DOUBLE_TAP_CTRL,
     _HOTKEY_ID_WIN_ALT_SPACE,
     _hotkey_listener_config,
     _polling_double_tap_listener,
@@ -88,9 +89,19 @@ def test_double_tap_ctrl_uses_polling_listener():
     assert "guard_vk_l" not in kwargs
 
 
+def test_shift_double_tap_ctrl_uses_polling_listener():
+    target, kwargs = _hotkey_listener_config(HotkeyChoice.SHIFT_DOUBLE_TAP_CTRL)
+    assert target is _polling_double_tap_listener
+    assert kwargs["hotkey_id"] == _HOTKEY_ID_SHIFT_DOUBLE_TAP_CTRL
+    assert kwargs["tap_vk_l"] == _VK_LCONTROL
+    assert kwargs["tap_vk_r"] == _VK_RCONTROL
+    assert kwargs["guard_vk_l"] == _VK_LSHIFT
+    assert kwargs["guard_vk_r"] == _VK_RSHIFT
+
+
 def test_all_four_choices_produce_distinct_hotkey_ids():
     ids = {_hotkey_listener_config(c)[1]["hotkey_id"] for c in HotkeyChoice}
-    assert len(ids) == 4
+    assert len(ids) == len(list(HotkeyChoice))
 
 
 # ---------------------------------------------------------------------------

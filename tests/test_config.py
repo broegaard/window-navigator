@@ -144,4 +144,4 @@ def test_hotkey_choice_values_are_strings():
 
 def test_hotkey_choice_all_members_present():
     names = {c.name for c in HotkeyChoice}
-    assert names == {"DOUBLE_TAP_CTRL", "WIN_ALT_SPACE", "CTRL_SHIFT_SPACE", "CTRL_DOUBLE_TAP_SHIFT"}
+    assert names == {"DOUBLE_TAP_CTRL", "WIN_ALT_SPACE", "CTRL_SHIFT_SPACE", "CTRL_DOUBLE_TAP_SHIFT", "SHIFT_DOUBLE_TAP_CTRL"}

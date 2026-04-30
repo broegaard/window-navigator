@@ -12,6 +12,7 @@ Double-tap **Ctrl** to open the overlay. The trigger hotkey is configurable via 
 | Win + Alt + Space | Chord hotkey |
 | Ctrl + Shift + Space | Chord hotkey |
 | Hold Ctrl, double-tap Shift | Hold Ctrl, press Shift twice quickly |
+| Hold Shift, double-tap Ctrl | Hold Shift, press Ctrl twice quickly |
 
 Double-tap **Ctrl** again while the overlay is open to expand / collapse all browser tabs.
 
