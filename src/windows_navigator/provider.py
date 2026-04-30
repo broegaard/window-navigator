@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes
+import logging
 import os
 import re
+import threading
 from collections import OrderedDict
 from typing import Callable, Protocol, Sequence
 
@@ -332,3 +334,71 @@ class RealWindowProvider:
             return os.path.basename(exe_path), exe_path
         except Exception:
             return "", ""
+
+
+_log = logging.getLogger(__name__)
+
+# Default interval between background cache refreshes (seconds).
+_CACHE_REFRESH_INTERVAL = 1.5
+
+
+class BackgroundWindowCache:
+    """Wraps a WindowProvider with a background-refreshed cache for near-zero open latency.
+
+    A daemon thread calls ``wrapped.get_windows()`` every *refresh_interval* seconds and
+    stores the result.  ``get_windows()`` returns the cached list immediately; the first
+    call blocks only until the initial refresh completes (same latency as before, once).
+
+    Call ``request_refresh()`` to trigger an immediate re-fetch — useful right after the
+    overlay is shown so the next open is fresh.
+    """
+
+    def __init__(
+        self,
+        wrapped: WindowProvider,
+        refresh_interval: float = _CACHE_REFRESH_INTERVAL,
+    ) -> None:
+        self._wrapped = wrapped
+        self._cache: list[WindowInfo] = []
+        self._lock = threading.Lock()
+        self._refresh_trigger = threading.Event()
+        self._ready = threading.Event()
+        self._stop = threading.Event()
+        self._interval = refresh_interval
+        t = threading.Thread(target=self._run, daemon=True, name="window-cache-refresher")
+        t.start()
+
+    def _run(self) -> None:
+        # Initialise COM for this thread so GetWindowDesktopId calls are apartment-safe.
+        try:
+            import ctypes as _ct
+            _ct.windll.ole32.CoInitializeEx(None, 0x2)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        while not self._stop.is_set():
+            try:
+                windows = self._wrapped.get_windows()
+                with self._lock:
+                    self._cache = windows
+            except Exception:
+                _log.exception("window-cache refresh failed")
+            finally:
+                self._ready.set()
+            self._refresh_trigger.wait(timeout=self._interval)
+            self._refresh_trigger.clear()
+
+    def get_windows(self) -> list[WindowInfo]:
+        """Return the cached window list, blocking only on the very first call."""
+        self._ready.wait()
+        with self._lock:
+            return list(self._cache)
+
+    def request_refresh(self) -> None:
+        """Trigger an immediate background refresh."""
+        self._refresh_trigger.set()
+
+    def stop(self) -> None:
+        """Stop the background refresh thread (used in tests for clean teardown)."""
+        self._stop.set()
+        self._refresh_trigger.set()

@@ -539,6 +539,8 @@ def _process_show_queue(
     tray.update(desktop)  # type: ignore[union-attr]
     if desktop > 0:
         current_desktop[0] = desktop
+    if hasattr(provider, "request_refresh"):
+        provider.request_refresh()  # pre-warm cache for next open
 
 
 def main() -> None:
@@ -554,7 +556,7 @@ def main() -> None:
     # Deferred imports keep startup fast and allow module-level imports on non-Windows
     from windows_navigator.activation import activate_window
     from windows_navigator.overlay import NavigatorOverlay, init_scale
-    from windows_navigator.provider import RealWindowProvider
+    from windows_navigator.provider import BackgroundWindowCache, RealWindowProvider
     from windows_navigator.tray import TrayIcon
     from windows_navigator.virtual_desktop import (
         get_current_desktop_number,
@@ -577,12 +579,13 @@ def main() -> None:
     def move_and_activate(hwnd: int) -> None:
         move_window_to_current_desktop(hwnd)
         activate_window(hwnd)
+        provider.request_refresh()  # window moved; pre-warm cache for next open
 
     flashing: set[int] = set()
     _start_flash_monitor(flashing)
     _start_tab_cache_warmer()
 
-    provider = RealWindowProvider(flashing=flashing)
+    provider = BackgroundWindowCache(RealWindowProvider(flashing=flashing))
     overlay = NavigatorOverlay(root, on_activate=activate_window, on_move=move_and_activate)
     show_queue: queue.Queue[int] = queue.Queue()
     move_queue: queue.Queue[tuple[int, int]] = queue.Queue()

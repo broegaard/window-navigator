@@ -468,3 +468,110 @@ def test_get_process_info_returns_empty_strings_on_exception():
     win32process.GetWindowThreadProcessId.side_effect = OSError("access denied")
     result = RealWindowProvider._get_process_info(42, win32process)
     assert result == ("", "")
+
+
+# ---------------------------------------------------------------------------
+# BackgroundWindowCache
+# ---------------------------------------------------------------------------
+
+
+def test_background_cache_serves_wrapped_list():
+    """get_windows() returns the list produced by the wrapped provider."""
+    import time
+    from windows_navigator.provider import BackgroundWindowCache
+
+    windows = [MagicMock()]
+    wrapped = MagicMock()
+    wrapped.get_windows.return_value = windows
+    cache = BackgroundWindowCache(wrapped, refresh_interval=60)
+    try:
+        result = cache.get_windows()
+        assert result == windows
+    finally:
+        cache.stop()
+
+
+def test_background_cache_ready_blocks_until_first_refresh():
+    """get_windows() must not block forever; returns a list."""
+    from windows_navigator.provider import BackgroundWindowCache
+
+    wrapped = MagicMock()
+    wrapped.get_windows.return_value = []
+    cache = BackgroundWindowCache(wrapped, refresh_interval=60)
+    try:
+        result = cache.get_windows()
+        assert isinstance(result, list)
+    finally:
+        cache.stop()
+
+
+def test_background_cache_returns_list_copy():
+    """Each get_windows() call returns a separate list object (not the internal cache)."""
+    from windows_navigator.provider import BackgroundWindowCache
+
+    windows = [MagicMock()]
+    wrapped = MagicMock()
+    wrapped.get_windows.return_value = windows
+    cache = BackgroundWindowCache(wrapped, refresh_interval=60)
+    try:
+        result1 = cache.get_windows()
+        result2 = cache.get_windows()
+        assert result1 is not result2
+        assert result1 == result2
+    finally:
+        cache.stop()
+
+
+def test_background_cache_request_refresh_triggers_refetch():
+    """request_refresh() causes the background thread to re-call wrapped.get_windows()."""
+    import time
+    from windows_navigator.provider import BackgroundWindowCache
+
+    wrapped = MagicMock()
+    wrapped.get_windows.return_value = []
+    cache = BackgroundWindowCache(wrapped, refresh_interval=60)
+    try:
+        cache.get_windows()  # wait for first refresh
+        initial_count = wrapped.get_windows.call_count
+        cache.request_refresh()
+        time.sleep(0.2)  # give background thread time to pick up the trigger
+        assert wrapped.get_windows.call_count > initial_count
+    finally:
+        cache.stop()
+
+
+def test_background_cache_handles_exception_in_wrapped():
+    """If wrapped.get_windows() raises, get_windows() still returns an empty list."""
+    from windows_navigator.provider import BackgroundWindowCache
+
+    wrapped = MagicMock()
+    wrapped.get_windows.side_effect = RuntimeError("simulated failure")
+    cache = BackgroundWindowCache(wrapped, refresh_interval=60)
+    try:
+        result = cache.get_windows()
+        assert isinstance(result, list)
+    finally:
+        cache.stop()
+
+
+def test_background_cache_keeps_last_good_cache_after_failure():
+    """After a successful refresh followed by a failed one, the last good list is kept."""
+    import time
+    from windows_navigator.provider import BackgroundWindowCache
+
+    windows = [MagicMock()]
+    wrapped = MagicMock()
+    wrapped.get_windows.return_value = windows
+    cache = BackgroundWindowCache(wrapped, refresh_interval=60)
+    try:
+        first = cache.get_windows()
+        assert first == windows
+        # Now simulate failure on next call
+        wrapped.get_windows.side_effect = RuntimeError("now broken")
+        cache.request_refresh()
+        time.sleep(0.2)
+        second = cache.get_windows()
+        assert second == windows  # last good list still served
+    finally:
+        cache.stop()
+
