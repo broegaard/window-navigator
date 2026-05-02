@@ -162,6 +162,7 @@ def test_hotkey_choice_all_members_present():
     names = {c.name for c in HotkeyChoice}
     assert names == {
         "DOUBLE_TAP_CTRL",
+        "DOUBLE_TAP_SHIFT",
         "WIN_ALT_SPACE",
         "CTRL_SHIFT_SPACE",
         "CTRL_DOUBLE_TAP_SHIFT",

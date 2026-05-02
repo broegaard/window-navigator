@@ -10,6 +10,7 @@ from windows_navigator.config import HotkeyChoice
 
 _LABELS: dict[HotkeyChoice, str] = {
     HotkeyChoice.DOUBLE_TAP_CTRL: "Double-tap Ctrl",
+    HotkeyChoice.DOUBLE_TAP_SHIFT: "Double-tap Shift",
     HotkeyChoice.WIN_ALT_SPACE: "Win + Alt + Space",
     HotkeyChoice.CTRL_SHIFT_SPACE: "Ctrl + Shift + Space",
     HotkeyChoice.CTRL_DOUBLE_TAP_SHIFT: "Hold Ctrl, double-tap Shift",

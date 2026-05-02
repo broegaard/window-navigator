@@ -26,6 +26,7 @@ _HOTKEY_ID_WIN_ALT_SPACE = 200
 _HOTKEY_ID_CTRL_SHIFT_SPACE = 300
 _HOTKEY_ID_DOUBLE_TAP_SHIFT = 400
 _HOTKEY_ID_SHIFT_DOUBLE_TAP_CTRL = 500
+_HOTKEY_ID_DOUBLE_TAP_SHIFT_SOLO = 600
 
 
 def _start_flash_monitor(flashing: set[int]) -> None:
@@ -463,6 +464,12 @@ def _hotkey_listener_config(choice: HotkeyChoice) -> tuple[object, dict[str, int
     MOD_NOREPEAT = 0x4000
     VK_SPACE = 0x20
 
+    if choice == HotkeyChoice.DOUBLE_TAP_SHIFT:
+        return _polling_double_tap_listener, {
+            "hotkey_id": _HOTKEY_ID_DOUBLE_TAP_SHIFT_SOLO,
+            "tap_vk_l": VK_LSHIFT,
+            "tap_vk_r": VK_RSHIFT,
+        }
     if choice == HotkeyChoice.WIN_ALT_SPACE:
         return _run_registered_hotkey, {
             "hotkey_id": _HOTKEY_ID_WIN_ALT_SPACE,
