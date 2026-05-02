@@ -122,13 +122,16 @@ def _start_flash_monitor(flashing: set[int]) -> None:
     threading.Thread(target=_run, daemon=True, name="flash-monitor").start()
 
 
-def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
+def _start_hotkey_listener(show_queue: queue.Queue[int], wakeup=None) -> None:
     """Detect double-tap of Ctrl (either key) within 300 ms and post to show_queue.
 
     Uses WH_KEYBOARD_LL. Unlike RegisterHotKey/WM_HOTKEY, this hook does not
     receive the foreground-lock exemption, so SetForegroundWindow may be blocked
     in some timing scenarios. The hook callback must return quickly (Windows
     unhooks automatically if it stalls > ~200 ms).
+
+    wakeup, if provided, is called immediately after queuing a trigger so the
+    consumer can react without waiting for its next poll cycle.
     """
 
     def _run() -> None:
@@ -173,6 +176,8 @@ def _start_hotkey_listener(show_queue: queue.Queue[int]) -> None:
                             if now - _last_ctrl_up[0] <= DOUBLE_TAP_MS:
                                 show_queue.put(user32.GetForegroundWindow())
                                 _last_ctrl_up[0] = 0.0  # prevent triple-tap re-trigger
+                                if wakeup is not None:
+                                    wakeup()
                         elif wParam in (WM_KEYUP, WM_SYSKEYUP):
                             _ctrl_held[0] = False
                             _last_ctrl_up[0] = time.monotonic() * 1000.0
@@ -281,10 +286,9 @@ def main() -> None:
     show_queue: queue.Queue[int] = queue.Queue()
     move_queue: queue.Queue[tuple[int, int]] = queue.Queue()
 
-    _start_hotkey_listener(show_queue)
     _start_move_hotkey_listener(move_queue)
 
-    def poll_queue() -> None:
+    def _drain_show_queue() -> None:
         try:
             while True:
                 show_queue.get_nowait()  # fg_hwnd captured at hotkey time (no longer used)
@@ -303,7 +307,12 @@ def main() -> None:
                     _current_desktop[0] = current_desktop
         except queue.Empty:
             pass
+
+    def poll_queue() -> None:
+        _drain_show_queue()
         root.after(50, poll_queue)
+
+    _start_hotkey_listener(show_queue, wakeup=lambda: root.after(0, _drain_show_queue))
 
     tray = TrayIcon(on_exit=root.quit)
     initial_desktop = get_current_desktop_number()
