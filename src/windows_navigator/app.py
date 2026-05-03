@@ -584,11 +584,17 @@ def _process_show_queue(
     *current_desktop* is a one-element list used as a mutable reference so
     the caller's tracking variable is updated after a successful enumeration.
     Only updated when a valid desktop number (> 0) is found.
+
+    The queue items are the foreground HWND captured at trigger time (via
+    GetForegroundWindow).  EnumWindows Z-order can lag slightly after a rapid
+    Alt+Tab, so we use that HWND to anchor the list: if the captured foreground
+    window is not already first, we move it there.
     """
+    trigger_hwnd: int = 0
     has_items = False
     try:
         while True:
-            show_queue.get_nowait()
+            trigger_hwnd = show_queue.get_nowait()
             has_items = True
     except queue.Empty:
         pass
@@ -597,6 +603,12 @@ def _process_show_queue(
     t0 = time.monotonic()
     windows = provider.get_windows()  # type: ignore[union-attr]
     fetch_ms = (time.monotonic() - t0) * 1000.0
+    # If EnumWindows returned a stale Z-order (common after a rapid Alt+Tab),
+    # the actual foreground window may not be at position 0.  Re-anchor it.
+    if trigger_hwnd and windows and windows[0].hwnd != trigger_hwnd:
+        idx = next((i for i, w in enumerate(windows) if w.hwnd == trigger_hwnd), -1)
+        if idx > 0:
+            windows = [windows[idx]] + windows[:idx] + windows[idx + 1 :]
     desktop = next(
         (w.desktop_number for w in windows if w.is_current_desktop and w.desktop_number > 0),
         0,
