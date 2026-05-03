@@ -1095,13 +1095,15 @@ class NavigatorOverlay:
         multi = self._controller.selected_hwnds
         if multi:
             focused = self._controller.selected_hwnd()
+            # Only move checked windows; activate focused last if it's also checked,
+            # otherwise activate an arbitrary checked window.
+            hwnds = [h for h in multi if h != focused]
+            if focused in multi:
+                hwnds.append(focused)
             self._closing = True
-            # Move all checked windows; activate the highlighted one last so it gets focus
-            for hwnd in multi:
-                if hwnd != focused:
-                    self._on_move(hwnd)
-            target = focused if focused is not None else next(iter(multi))
-            self._on_move(target)
+            for hwnd in hwnds[:-1]:
+                self._on_move(hwnd)
+            self._on_move(hwnds[-1])
             self.hide()
         else:
             hwnd = self._controller.selected_hwnd()
@@ -1119,8 +1121,9 @@ class NavigatorOverlay:
         multi = self._controller.selected_hwnds
         focused = self._controller.selected_hwnd()
         if multi:
+            # Only include checked windows; put focused last if it's also checked
             hwnds = [h for h in multi if h != focused]
-            if focused is not None:
+            if focused in multi:
                 hwnds.append(focused)
         else:
             hwnds = [focused] if focused is not None else []
