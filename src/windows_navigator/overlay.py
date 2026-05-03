@@ -581,10 +581,35 @@ class NavigatorOverlay:
 
         self._canvas.configure(scrollregion=(0, 0, canvas_w, total_h))
 
+        # --- Virtual rendering: only draw rows within the visible viewport ---
+        # winfo_reqheight() is reliable even for a withdrawn (not-yet-shown) window.
+        canvas_h = self._canvas.winfo_height()
+        if canvas_h <= 1:
+            canvas_h = self._canvas.winfo_reqheight()
+        if canvas_h <= 1:
+            canvas_h = _MAX_ROWS_VISIBLE * _ROW_HEIGHT  # last-resort fallback
+
+        # Scroll position in pixels (Tk preserves this across delete/configure).
+        view_top = int(self._canvas.yview()[0] * total_h)
+
+        # Pre-apply selection scroll so we clip against the *destination* viewport.
+        if 0 <= sel < len(flat):
+            sel_y0 = ys[sel]
+            sel_y1 = sel_y0 + _row_height(flat[sel])
+            if sel_y0 < view_top:
+                view_top = sel_y0
+            elif sel_y1 > view_top + canvas_h:
+                view_top = sel_y1 - canvas_h
+        view_top = max(0, min(view_top, total_h - canvas_h))
+        view_bottom = view_top + canvas_h
+
         for i, item in enumerate(flat):
             y0 = ys[i]
             rh = _row_height(item)
             y1 = y0 + rh
+
+            if y1 <= view_top or y0 >= view_bottom:
+                continue  # row is outside the visible viewport
 
             if isinstance(item, TabInfo):
                 row_bg = c["row_sel"] if i == sel else c["tab_bg"]
@@ -738,18 +763,8 @@ class NavigatorOverlay:
                         anchor="center",
                     )
 
-        # Scroll the selected row into view only when it falls outside the viewport
-        if 0 <= sel < len(flat):
-            sel_y0 = ys[sel]
-            sel_y1 = sel_y0 + _row_height(flat[sel])
-            top_frac, bottom_frac = self._canvas.yview()
-            view_top = top_frac * total_h
-            view_bottom = bottom_frac * total_h
-            if sel_y0 < view_top:
-                self._canvas.yview_moveto(sel_y0 / total_h)
-            elif sel_y1 > view_bottom:
-                visible_h = (bottom_frac - top_frac) * total_h
-                self._canvas.yview_moveto((sel_y1 - visible_h) / total_h)
+        # Scroll to the pre-computed destination (already accounts for selection visibility).
+        self._canvas.yview_moveto(view_top / total_h)
 
     def _refresh_selection_only(self, old_sel: int, new_sel: int) -> None:
         """Update only the highlight color of the two affected rows and scroll into view.
