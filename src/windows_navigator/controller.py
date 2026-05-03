@@ -41,6 +41,8 @@ class NavigationControllerProtocol(Protocol):
     def flat_list(self) -> list[WindowInfo | TabInfo]: ...
     @property
     def filtered_windows(self) -> list[WindowInfo]: ...
+    @property
+    def selected_hwnds(self) -> set[int]: ...
 
     def move_up(self) -> None: ...
     def move_down(self) -> None: ...
@@ -50,6 +52,8 @@ class NavigationControllerProtocol(Protocol):
     def move_to_last(self) -> None: ...
     def selected_item(self) -> WindowInfo | TabInfo | None: ...
     def selected_hwnd(self) -> int | None: ...
+    def toggle_hwnd_selection(self, hwnd: int) -> None: ...
+    def clear_selection(self) -> None: ...
 
 
 class TabControllerProtocol(Protocol):
@@ -88,6 +92,7 @@ class OverlayController:
         self._tabs: dict[int, list[TabInfo]] = {}
         self._expanded: set[int] = set()
         self._want_all_expanded: bool = False
+        self._selected_hwnds: set[int] = set()
         self.selection_index = 0 if windows else -1
 
     # ------------------------------------------------------------------
@@ -381,6 +386,7 @@ class OverlayController:
         self._tabs = {}
         self._expanded = set()
         self._want_all_expanded = False
+        self._selected_hwnds = set()
         self.selection_index = 0 if windows else -1
         self._invalidate_text_filter_cache()
 
@@ -392,3 +398,19 @@ class OverlayController:
         """Return the hwnd of the currently selected item (window or tab's parent), or None."""
         item = self.selected_item()
         return item.hwnd if item is not None else None
+
+    @property
+    def selected_hwnds(self) -> set[int]:
+        """Set of hwnds explicitly checked for multi-select."""
+        return self._selected_hwnds
+
+    def toggle_hwnd_selection(self, hwnd: int) -> None:
+        """Toggle the multi-select checkbox for *hwnd*."""
+        if hwnd in self._selected_hwnds:
+            self._selected_hwnds.discard(hwnd)
+        else:
+            self._selected_hwnds.add(hwnd)
+
+    def clear_selection(self) -> None:
+        """Clear all multi-select checkboxes."""
+        self._selected_hwnds.clear()

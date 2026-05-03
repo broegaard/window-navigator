@@ -53,6 +53,8 @@ _ENTRY_AREA_H = 56  # total height of the entry section (pads + entry widget)
 _ARROW_X = 6  # expand/collapse arrow x position
 _NOTIF_X_OFFSET = 14  # notification bell offset from right canvas edge
 _STRIP_DIV_PAD = 3  # vertical inset for strip slot divider lines
+_CHECKBOX_SIZE = 14  # checkbox square side length
+_CHECKBOX_MARGIN = 8  # gap between checkbox and right canvas edge
 
 # Icon strip (between entry and window list)
 _STRIP_HEIGHT = _ICON_SIZE + 12  # 44 px — icon + top/bottom padding
@@ -74,6 +76,7 @@ def init_scale(scale: float) -> None:
     global _BADGE_ENTRY_SIZE, _ENTRY_FRAME_PAD, _ENTRY_INNER_PAD, _ENTRY_AREA_H
     global _ARROW_X, _NOTIF_X_OFFSET, _STRIP_DIV_PAD
     global _STRIP_HEIGHT, _STRIP_SLOT_W, _STRIP_PAD_Y, _STRIP_PAD_X, _COUNT_BAR_H
+    global _CHECKBOX_SIZE, _CHECKBOX_MARGIN
 
     def s(n: int) -> int:
         return round(n * scale)
@@ -99,6 +102,8 @@ def init_scale(scale: float) -> None:
     _STRIP_PAD_Y = (_STRIP_HEIGHT - _ICON_SIZE) // 2
     _STRIP_PAD_X = (_STRIP_SLOT_W - _ICON_SIZE) // 2
     _COUNT_BAR_H = s(18)
+    _CHECKBOX_SIZE = s(14)
+    _CHECKBOX_MARGIN = s(8)
 
 
 def _row_height(item: WindowInfo | TabInfo) -> int:
@@ -285,6 +290,7 @@ class NavigatorOverlay:
         self._entry.bind("<Control-KP_Subtract>", self._on_ctrl_minus)
         self._entry.bind("<Control-grave>", self._on_ctrl_grave)
         self._entry.bind("<Control-onehalf>", self._on_ctrl_grave)
+        self._entry.bind("<Control-space>", self._on_ctrl_space)
 
         # --- Icon strip (between entry and window list) ---
         strip_frame = tk.Frame(top, bg=c["bg"])
@@ -390,6 +396,7 @@ class NavigatorOverlay:
         flat = self._controller.flat_list
         sel = self._controller.selection_index
         canvas_w = _OVERLAY_WIDTH
+        any_selected = bool(self._controller.selected_hwnds)
 
         n = len(self._controller.filtered_windows)
         if self._count_label is not None:
@@ -524,17 +531,43 @@ class NavigatorOverlay:
                 width=canvas_w - _TEXT_X - 8,
             )
 
-            # Notification bell — amber bell glyph at right edge
+            # Notification bell — amber bell glyph at right edge; shifts left in multi-select mode
             if w.has_notification:
                 cy = (y0 + y1) // 2
+                notif_x = (
+                    canvas_w - _NOTIF_X_OFFSET - _CHECKBOX_SIZE - _CHECKBOX_MARGIN
+                    if any_selected
+                    else canvas_w - _NOTIF_X_OFFSET
+                )
                 self._canvas.create_text(
-                    canvas_w - _NOTIF_X_OFFSET,
+                    notif_x,
                     cy,
                     text=_NOTIF_BELL_CHAR,
                     fill=_NOTIF_COLOR,
                     font=_NOTIF_BELL_FONT,
                     anchor="center",
                 )
+
+            # Checkbox — only shown when at least one window is checked
+            if any_selected:
+                cx1 = canvas_w - _CHECKBOX_MARGIN
+                cx0 = cx1 - _CHECKBOX_SIZE
+                cy0 = y0 + (rh - _CHECKBOX_SIZE) // 2
+                cy1 = cy0 + _CHECKBOX_SIZE
+                is_checked = w.hwnd in self._controller.selected_hwnds
+                box_fill = c["row_sel"] if is_checked else ""
+                self._canvas.create_rectangle(
+                    cx0, cy0, cx1, cy1, outline=c["proc_fg"], fill=box_fill, width=1
+                )
+                if is_checked:
+                    self._canvas.create_text(
+                        (cx0 + cx1) // 2,
+                        (cy0 + cy1) // 2,
+                        text="✓",
+                        fill=c["title_fg"],
+                        font=("Segoe UI", 9, "bold"),
+                        anchor="center",
+                    )
 
         # Scroll the selected row into view only when it falls outside the viewport
         if 0 <= sel < len(flat):
@@ -900,6 +933,15 @@ class NavigatorOverlay:
             self._resize_to_fit()
         return "break"
 
+    def _on_ctrl_space(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        """Toggle multi-select checkbox on the currently highlighted window (Ctrl+Space)."""
+        if self._controller:
+            hwnd = self._controller.selected_hwnd()
+            if hwnd is not None:
+                self._controller.toggle_hwnd_selection(hwnd)
+                self._refresh_canvas()
+        return "break"
+
     def _update_bell_badge(self) -> None:
         """Create or destroy the bell badge in the entry bar to reflect controller._bell_filter."""
         if self._entry_inner is None or self._entry is None or self._controller is None:
@@ -1030,13 +1072,25 @@ class NavigatorOverlay:
     def _move_and_activate_selected(self) -> None:
         if self._controller is None:
             return
-        hwnd = self._controller.selected_hwnd()
-        if hwnd is None:
+        multi = self._controller.selected_hwnds
+        if multi:
+            focused = self._controller.selected_hwnd()
+            self._closing = True
+            # Move all checked windows; activate the highlighted one last so it gets focus
+            for hwnd in multi:
+                if hwnd != focused:
+                    self._on_move(hwnd)
+            target = focused if focused is not None else next(iter(multi))
+            self._on_move(target)
             self.hide()
-            return
-        self._closing = True
-        self._on_move(hwnd)
-        self.hide()
+        else:
+            hwnd = self._controller.selected_hwnd()
+            if hwnd is None:
+                self.hide()
+                return
+            self._closing = True
+            self._on_move(hwnd)
+            self.hide()
 
     # ------------------------------------------------------------------
     # Query state helpers

@@ -1375,3 +1375,48 @@ def test_toggle_all_expansions_collapse_sets_selection_minus_one_when_flat_list_
     # Collapse: _expanded.clear() → _tab_query_matches returns {} → filtered_windows empty
     ctrl.toggle_all_expansions()
     assert ctrl.selection_index == -1
+
+
+# ---------------------------------------------------------------------------
+# Multi-select (toggle_hwnd_selection / selected_hwnds / clear_selection)
+# ---------------------------------------------------------------------------
+
+
+def test_selected_hwnds_initially_empty():
+    ctrl = OverlayController(_windows("A", "B", "C"))
+    assert ctrl.selected_hwnds == set()
+
+
+def test_toggle_hwnd_selection_adds():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.toggle_hwnd_selection(1)
+    assert 1 in ctrl.selected_hwnds
+
+
+def test_toggle_hwnd_selection_removes_when_already_selected():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.toggle_hwnd_selection(1)
+    ctrl.toggle_hwnd_selection(1)
+    assert 1 not in ctrl.selected_hwnds
+
+
+def test_multiple_windows_can_be_selected():
+    ctrl = OverlayController(_windows("A", "B", "C"))
+    ctrl.toggle_hwnd_selection(1)
+    ctrl.toggle_hwnd_selection(3)
+    assert ctrl.selected_hwnds == {1, 3}
+
+
+def test_clear_selection_removes_all():
+    ctrl = OverlayController(_windows("A", "B", "C"))
+    ctrl.toggle_hwnd_selection(1)
+    ctrl.toggle_hwnd_selection(2)
+    ctrl.clear_selection()
+    assert ctrl.selected_hwnds == set()
+
+
+def test_reset_clears_selection():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.toggle_hwnd_selection(1)
+    ctrl.reset(_windows("C", "D"))
+    assert ctrl.selected_hwnds == set()
