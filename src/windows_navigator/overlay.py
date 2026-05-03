@@ -161,6 +161,7 @@ class NavigatorOverlay:
         self._pending_hide: str | None = None  # after() ID for a scheduled hide()
         self._bell_badge_widget: tk.Label | None = None
         self._count_label: tk.Label | None = None
+        self._hints_label: tk.Label | None = None
         self._fetch_time_label: tk.Label | None = None
         self._fetch_ms: float | None = None
         self._open_start: float | None = None
@@ -428,6 +429,20 @@ class NavigatorOverlay:
             padx=6,
         )
         self._fetch_time_label.pack(side="right", fill="y")
+        _HINTS = (
+            "↵ activate  ·  Ctrl+↵ move & activate"
+            "  ·  Ctrl+Space select  ·  Ctrl+Shift+↵ pick desktop"
+            "  ·  Tab app filter  ·  Esc close"
+        )
+        self._hints_label = tk.Label(
+            footer,
+            text=_HINTS,
+            bg=c["bg"],
+            fg=c["border"],
+            font=("Segoe UI", 8),
+            anchor="center",
+        )
+        self._hints_label.pack(side="left", fill="both", expand=True)
 
         # --- Bindings ---
         assert self._entry is not None
