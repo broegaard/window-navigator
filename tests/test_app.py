@@ -161,7 +161,7 @@ def test_single_item_triggers_overlay_show():
     _process_show_queue(q, provider, overlay, tray, ref)
 
     provider.get_windows.assert_called_once()
-    overlay.show.assert_called_once_with(windows, initial_desktop=2, fetch_ms=ANY)
+    overlay.show.assert_called_once_with(windows, initial_desktop=2, fetch_ms=ANY, open_start=ANY)
     tray.update.assert_called_once_with(2)
     assert ref[0] == 2
 
@@ -231,6 +231,27 @@ def test_overlay_show_receives_fetch_ms_as_float():
     fetch_ms = call_kwargs["fetch_ms"]
     assert isinstance(fetch_ms, float)
     assert fetch_ms >= 0.0
+
+
+def test_overlay_show_receives_open_start_as_float():
+    """open_start is a monotonic timestamp passed for total-load-time measurement."""
+    q: queue.Queue[int] = queue.Queue()
+    q.put(1)
+
+    provider = MagicMock()
+    provider.get_windows.return_value = [_make_window()]
+    overlay = MagicMock()
+
+    import time
+
+    before = time.monotonic()
+    _process_show_queue(q, provider, overlay, MagicMock(), [0])
+    after = time.monotonic()
+
+    _, call_kwargs = overlay.show.call_args
+    open_start = call_kwargs["open_start"]
+    assert isinstance(open_start, float)
+    assert before <= open_start <= after
 
 
 def test_tray_updated_with_correct_desktop_number():

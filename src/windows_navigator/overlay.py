@@ -163,6 +163,7 @@ class NavigatorOverlay:
         self._count_label: tk.Label | None = None
         self._fetch_time_label: tk.Label | None = None
         self._fetch_ms: float | None = None
+        self._open_start: float | None = None
         self._closing: bool = False  # True while handing focus to a target window
         self._picker_open: bool = False  # True while desktop-picker popup is visible
         self._fetch_cancel: threading.Event | None = None
@@ -181,6 +182,7 @@ class NavigatorOverlay:
         windows: list[WindowInfo],
         initial_desktop: int = 0,
         fetch_ms: float | None = None,
+        open_start: float | None = None,
     ) -> None:
         """Open (or refresh) the overlay with *windows*.
 
@@ -203,6 +205,7 @@ class NavigatorOverlay:
         self._controller = self._controller_factory(windows)
         self._initial_desktop = initial_desktop
         self._fetch_ms = fetch_ms
+        self._open_start = open_start
         self._photo_image_cache.clear()
         if self._fetch_cancel is not None:
             self._fetch_cancel.set()
@@ -253,6 +256,7 @@ class NavigatorOverlay:
             self._count_label = None
             self._fetch_time_label = None
             self._fetch_ms = None
+            self._open_start = None
 
     # ------------------------------------------------------------------
     # UI construction
@@ -400,6 +404,13 @@ class NavigatorOverlay:
         self._entry.icursor(tk.END)
         self._position_window()
         top.deiconify()
+        # Stamp total open time (trigger → window visible) now that the window
+        # is on screen.  Overwrites the initial fetch-time placeholder.
+        if self._open_start is not None and self._fetch_time_label is not None:
+            import time as _time
+
+            total_ms = (_time.monotonic() - self._open_start) * 1000.0
+            self._fetch_time_label.config(text=f"{total_ms:.0f} ms")
         # A brief delay lets the SW_SHOWNORMAL focus-flash complete before we
         # grab focus; 10 ms is enough on all tested hardware (was 50 ms).
         top.after(10, self._grab_focus)

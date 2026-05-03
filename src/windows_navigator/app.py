@@ -623,7 +623,8 @@ def _process_show_queue(
         pass
     if not has_items:
         return
-    t0 = time.monotonic()
+    open_start = time.monotonic()
+    t0 = open_start
     windows = provider.get_windows()  # type: ignore[union-attr]
     fetch_ms = (time.monotonic() - t0) * 1000.0
     # If EnumWindows returned a stale Z-order (common after a rapid Alt+Tab),
@@ -636,7 +637,7 @@ def _process_show_queue(
         (w.desktop_number for w in windows if w.is_current_desktop and w.desktop_number > 0),
         0,
     )
-    overlay.show(windows, initial_desktop=desktop, fetch_ms=fetch_ms)  # type: ignore[union-attr]
+    overlay.show(windows, initial_desktop=desktop, fetch_ms=fetch_ms, open_start=open_start)  # type: ignore[union-attr]
     tray.update(desktop)  # type: ignore[union-attr]
     if desktop > 0:
         current_desktop[0] = desktop
