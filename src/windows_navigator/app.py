@@ -647,6 +647,18 @@ def main() -> None:
         activate_window(hwnd)
         provider.request_refresh()  # window moved; pre-warm cache for next open
 
+    def move_windows_to_desktop(hwnds: list[int], n: int) -> None:
+        """Move every hwnd in *hwnds* to desktop *n* (1-based); activate the last one."""
+        from windows_navigator.virtual_desktop import move_window_to_desktop_number, switch_to_desktop_number
+
+        for hwnd in hwnds[:-1]:
+            move_window_to_desktop_number(hwnd, n)
+        if hwnds:
+            move_window_to_desktop_number(hwnds[-1], n)
+            switch_to_desktop_number(n)
+            activate_window(hwnds[-1])
+        provider.request_refresh()
+
     flashing: set[int] = set()
     _start_flash_monitor(flashing)
     _start_tab_cache_warmer()
@@ -656,6 +668,7 @@ def main() -> None:
         root,
         on_activate=activate_window,
         on_move=move_and_activate,
+        on_move_to=move_windows_to_desktop,
         expand_on_startup=load_expand_on_startup(),
     )
     show_queue: queue.Queue[int] = queue.Queue()

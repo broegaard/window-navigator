@@ -110,6 +110,19 @@ def _row_height(item: WindowInfo | TabInfo) -> int:
     return _TAB_ROW_HEIGHT if isinstance(item, TabInfo) else _ROW_HEIGHT
 
 
+def _get_desktop_count() -> int:
+    """Return the number of virtual desktops; defaults to 9 when unavailable."""
+    try:
+        from windows_navigator.virtual_desktop import _get_registry_desktop_order
+
+        guids = _get_registry_desktop_order()
+        if guids:
+            return max(len(guids), 1)
+    except Exception:
+        pass
+    return 9
+
+
 # ---------------------------------------------------------------------------
 # Overlay
 # ---------------------------------------------------------------------------
@@ -123,12 +136,14 @@ class NavigatorOverlay:
         root: tk.Tk,
         on_activate: Callable[[int], None],
         on_move: Callable[[int], None],
+        on_move_to: Callable[[list[int], int], None] | None = None,
         controller_factory: Callable[[list[WindowInfo]], OverlayControllerProtocol] | None = None,
         expand_on_startup: bool = False,
     ) -> None:
         self._root = root
         self._on_activate = on_activate
         self._on_move = on_move
+        self._on_move_to = on_move_to
         self._controller_factory: Callable[[list[WindowInfo]], OverlayControllerProtocol] = (
             controller_factory if controller_factory is not None else OverlayController
         )
@@ -149,6 +164,7 @@ class NavigatorOverlay:
         self._fetch_time_label: tk.Label | None = None
         self._fetch_ms: float | None = None
         self._closing: bool = False  # True while handing focus to a target window
+        self._picker_open: bool = False  # True while desktop-picker popup is visible
         self._fetch_cancel: threading.Event | None = None
         self._fetch_gen: int = 0  # incremented each show(); guards stale worker callbacks
 
@@ -205,6 +221,7 @@ class NavigatorOverlay:
             self._fetch_cancel.set()
             self._fetch_cancel = None
         self._closing = False
+        self._picker_open = False
         self._pending_hide = None
         if self._top is not None:
             self._top.destroy()
@@ -353,6 +370,9 @@ class NavigatorOverlay:
         self._entry.bind("<Return>", lambda _e: self._activate_selected() or "break")
         self._entry.bind(
             "<Control-Return>", lambda _e: self._move_and_activate_selected() or "break"
+        )
+        self._entry.bind(
+            "<Control-Shift-Return>", lambda _e: self._on_ctrl_shift_enter() or "break"
         )
         self._entry.bind("<Up>", self._on_arrow_up)
         self._entry.bind("<Down>", self._on_arrow_down)
@@ -1040,7 +1060,7 @@ class NavigatorOverlay:
         # SW_SHOWNORMAL flash on deiconify, once from the user click) and without this the
         # first after-ID becomes orphaned: _on_focus_in only cancels _pending_hide (the
         # latest ID), so the orphaned callback fires later and closes a healthy overlay.
-        if self._closing:
+        if self._closing or self._picker_open:
             return
         if self._top is not None:
             if self._pending_hide is not None:
@@ -1091,6 +1111,94 @@ class NavigatorOverlay:
             self._closing = True
             self._on_move(hwnd)
             self.hide()
+
+    def _on_ctrl_shift_enter(self) -> None:
+        """Show the desktop-picker popup (Ctrl+Shift+Enter)."""
+        if self._controller is None or self._on_move_to is None:
+            return
+        multi = self._controller.selected_hwnds
+        focused = self._controller.selected_hwnd()
+        if multi:
+            hwnds = [h for h in multi if h != focused]
+            if focused is not None:
+                hwnds.append(focused)
+        else:
+            hwnds = [focused] if focused is not None else []
+        if hwnds:
+            self._show_desktop_picker(hwnds)
+
+    def _show_desktop_picker(self, hwnds: list[int]) -> None:
+        """Open a small popup letting the user choose a target desktop for *hwnds*."""
+        if self._top is None or self._on_move_to is None:
+            return
+        c = _colors()
+        desktop_count = _get_desktop_count()
+
+        picker = tk.Toplevel(self._top)
+        picker.overrideredirect(True)
+        picker.attributes("-topmost", True)
+        picker.configure(bg=c["border"])
+
+        frame = tk.Frame(picker, bg=c["bg"], padx=10, pady=8)
+        frame.pack(fill="both", expand=True, padx=1, pady=1)
+
+        tk.Label(
+            frame,
+            text="Move to desktop:",
+            bg=c["bg"],
+            fg=c["proc_fg"],
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 8))
+
+        def _select(n: int) -> None:
+            picker.destroy()
+            self._picker_open = False
+            assert self._on_move_to is not None
+            self._on_move_to(hwnds, n)
+            self.hide()
+
+        def _cancel() -> None:
+            picker.destroy()
+            self._picker_open = False
+            if self._entry is not None:
+                self._entry.focus_force()
+
+        for i in range(1, desktop_count + 1):
+            color = _desktop_badge_color(i)
+            btn = tk.Button(
+                frame,
+                text=str(i),
+                bg=color,
+                fg="#ffffff",
+                font=("Segoe UI", 10, "bold"),
+                relief="flat",
+                cursor="hand2",
+                width=2,
+                height=1,
+                command=lambda n=i: _select(n),
+            )
+            btn.pack(side="left", padx=2)
+
+        # Position the picker just below the overlay, horizontally centred
+        self._top.update_idletasks()
+        picker.update_idletasks()
+        pw = picker.winfo_reqwidth()
+        x = self._top.winfo_x() + (self._top.winfo_width() - pw) // 2
+        y = self._top.winfo_y() + self._top.winfo_height() + 2
+        picker.geometry(f"+{x}+{y}")
+
+        def _on_key(event: tk.Event) -> None:  # type: ignore[type-arg]
+            if event.keysym.isdigit():
+                n = int(event.keysym)
+                if 1 <= n <= desktop_count:
+                    _select(n)
+            elif event.keysym == "Escape":
+                _cancel()
+
+        picker.bind("<KeyPress>", _on_key)
+        self._picker_open = True
+        picker.focus_force()
+        picker.grab_set()
 
     # ------------------------------------------------------------------
     # Query state helpers

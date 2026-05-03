@@ -264,6 +264,32 @@ def move_window_to_current_desktop(hwnd: int) -> bool:
         return False
 
 
+def move_window_to_desktop_number(hwnd: int, n: int) -> bool:
+    """Move *hwnd* to the Nth virtual desktop (1-based). Returns True on success.
+
+    Tries pyvda first (handles Windows 11 cross-process restrictions), then falls
+    back to the public IVirtualDesktopManager::MoveWindowToDesktop with the GUID
+    read from the registry.
+    """
+    try:
+        from pyvda import AppView, VirtualDesktop  # type: ignore[import]
+
+        AppView(hwnd).move(VirtualDesktop(n))
+        return True
+    except Exception:
+        pass
+    try:
+        all_guids = _get_registry_desktop_order()
+        if not all_guids or n < 1 or n > len(all_guids):
+            return False
+        manager = _get_manager()
+        if manager is None:
+            return False
+        return bool(manager.MoveWindowToDesktop(hwnd, all_guids[n - 1]))
+    except Exception:
+        return False
+
+
 def switch_to_desktop_number(n: int) -> bool:
     """Switch to the Nth virtual desktop (1-based). Returns True on success."""
     try:
