@@ -43,7 +43,9 @@ Double-tap **Ctrl** again while the overlay is open to expand / collapse all bro
 |-----|--------|
 | `Enter` | Activate selected window |
 | `Ctrl+Enter` | Move window to current desktop, then activate |
-| `Ctrl+Shift+N` | Jump to desktop N (activates first window there, or switches if empty) |
+| `Ctrl+Space` | Toggle multi-select checkbox on highlighted window |
+| `Ctrl+Shift+Enter` | Open desktop-picker — move selected / multi-selected window(s) to any desktop |
+| `Ctrl+Shift+1`–`9` | Jump to desktop N (activates first window there, or switches desktop if empty) |
 | `Esc` | Clear active filter → reset to active-desktop view → dismiss |
 
 ### Global hotkeys (work without the overlay open)
