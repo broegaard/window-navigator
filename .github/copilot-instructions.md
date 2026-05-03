@@ -68,18 +68,30 @@ src/windows_navigator/
     virtual_desktop.py   # assign_desktop_numbers(), move_window_to_current_desktop(), etc — COM
     activation.py        # activate_window() — Win32 restore + SetForegroundWindow
     overlay.py           # NavigatorOverlay — tkinter Canvas UI
+    overlay_layout.py    # colour palette, dark-mode detection, row-height constants
     tabs.py              # UIA tab discovery + activation — Windows-only, deferred imports
     theme.py             # DESKTOP_COLORS, desktop_badge_color() — shared colour palette
     tray.py              # TrayIcon — pystray system tray
+    favicons.py          # fetch_favicon() — domain-keyed LRU favicon cache
+    wt_icons.py          # Windows Terminal per-profile icon resolution (reads settings.json)
     config.py            # HotkeyChoice enum, load_hotkey()/save_hotkey() — %APPDATA%\windows-navigator\config.toml
     settings.py          # settings Toplevel modal — hotkey radio-button selection
 
 tests/
+    test_activation.py       # activate_window(), _force_foreground(), _get_cursor_monitor_workarea()
+    test_app.py              # hotkey dispatch config and queue drain logic
+    test_config.py           # HotkeyChoice, load_hotkey(), save_hotkey()
     test_filter.py           # filter_windows()
     test_keyboard.py         # OverlayController state machine + tab search
+    test_models.py           # WindowInfo and TabInfo dataclasses
+    test_overlay.py          # overlay helper functions (no Tk display required)
+    test_overlay_layout.py   # colour palette and dark-mode helpers
     test_provider.py         # RealWindowProvider icon extraction fallback
-    test_virtual_desktop.py  # desktop number assignment + fallbacks
+    test_tabs.py             # UIA tab discovery helpers
+    test_theme.py            # desktop_badge_color()
     test_tray.py             # _make_tray_icon — pixel-level color checks
+    test_virtual_desktop.py  # desktop number assignment + fallbacks
+    test_wt_icons.py         # Windows Terminal per-profile icon resolution
 ```
 
 ### Event flow
