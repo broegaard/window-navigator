@@ -79,6 +79,7 @@ class OverlayControllerProtocol(
 
     def reset(self, windows: list[WindowInfo]) -> None: ...
     def extend_windows(self, extra: list[WindowInfo]) -> None: ...
+    def remove_windows(self, hwnds: set[int]) -> None: ...
 
 
 class OverlayController:
@@ -402,6 +403,22 @@ class OverlayController:
         self._invalidate_text_filter_cache()
         if self.selection_index < 0 and self.all_windows:
             self.selection_index = 0
+
+    def remove_windows(self, hwnds: set[int]) -> None:
+        """Remove windows by hwnd (optimistic update after close).
+
+        Preserves query, desktop filter, and app filter state.  Clears any
+        multi-select entries for the removed windows and clamps the selection
+        index so it remains valid.
+        """
+        self.all_windows = [w for w in self.all_windows if w.hwnd not in hwnds]
+        self._selected_hwnds -= hwnds
+        self._invalidate_text_filter_cache()
+        n = len(self.flat_list)
+        if n == 0:
+            self.selection_index = -1
+        elif self.selection_index >= n:
+            self.selection_index = n - 1
 
     # ------------------------------------------------------------------
     # Read helpers

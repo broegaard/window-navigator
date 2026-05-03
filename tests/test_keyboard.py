@@ -1472,3 +1472,54 @@ def test_extend_windows_does_not_reset_other_state():
     ctrl.extend_windows(_windows("C"))
     assert ctrl.query == "A"
     assert 1 in ctrl.selected_hwnds
+
+
+# ---------------------------------------------------------------------------
+# remove_windows
+# ---------------------------------------------------------------------------
+
+
+def test_remove_windows_drops_from_all_windows():
+    ctrl = OverlayController(_windows("A", "B", "C"))
+    ctrl.remove_windows({1})
+    assert all(w.hwnd != 1 for w in ctrl.all_windows)
+    assert len(ctrl.all_windows) == 2
+
+
+def test_remove_windows_clamps_selection():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.selection_index = 1
+    ctrl.remove_windows({2})  # hwnd=2 is "B", the last item
+    assert ctrl.selection_index == 0
+
+
+def test_remove_windows_sets_minus_one_when_empty():
+    ctrl = OverlayController(_windows("A"))
+    ctrl.remove_windows({1})
+    assert ctrl.selection_index == -1
+    assert ctrl.all_windows == []
+
+
+def test_remove_windows_clears_selected_hwnds():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.toggle_hwnd_selection(1)
+    ctrl.toggle_hwnd_selection(2)
+    ctrl.remove_windows({1})
+    assert 1 not in ctrl.selected_hwnds
+    assert 2 in ctrl.selected_hwnds
+
+
+def test_remove_windows_preserves_query_filter():
+    ctrl = OverlayController(_windows("Alpha", "Beta"))
+    ctrl.set_query("Beta")
+    ctrl.remove_windows({1})  # remove "Alpha" (not in filtered view)
+    assert ctrl.query == "Beta"
+    assert len(ctrl.filtered_windows) == 1
+    assert ctrl.filtered_windows[0].title == "Beta"
+
+
+def test_remove_windows_unknown_hwnd_is_noop():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.remove_windows({999})
+    assert len(ctrl.all_windows) == 2
+    assert ctrl.selection_index == 0

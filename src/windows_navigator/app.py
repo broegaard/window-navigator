@@ -700,6 +700,17 @@ def main() -> None:
         activate_window(hwnd)
         provider.request_refresh()  # window moved; pre-warm cache for next open
 
+    def close_windows(hwnds: list[int]) -> None:
+        for hwnd in hwnds:
+            try:
+                import win32con
+                import win32gui
+
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+            except Exception:
+                pass
+        provider.request_refresh()
+
     def move_windows_to_desktop(hwnds: list[int], n: int) -> None:
         """Move every hwnd in *hwnds* to desktop *n* (1-based); activate the last one.
 
@@ -733,6 +744,7 @@ def main() -> None:
         on_activate=activate_window,
         on_move=move_and_activate,
         on_move_to=move_windows_to_desktop,
+        on_close=close_windows,
         expand_on_startup=load_expand_on_startup(),
     )
     show_queue: _WakeQueue = _WakeQueue()

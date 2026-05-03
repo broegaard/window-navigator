@@ -137,6 +137,7 @@ class NavigatorOverlay:
         on_activate: Callable[[int], None],
         on_move: Callable[[int], None],
         on_move_to: Callable[[list[int], int], None] | None = None,
+        on_close: Callable[[list[int]], None] | None = None,
         controller_factory: Callable[[list[WindowInfo]], OverlayControllerProtocol] | None = None,
         expand_on_startup: bool = False,
     ) -> None:
@@ -144,6 +145,7 @@ class NavigatorOverlay:
         self._on_activate = on_activate
         self._on_move = on_move
         self._on_move_to = on_move_to
+        self._on_close = on_close
         self._controller_factory: Callable[[list[WindowInfo]], OverlayControllerProtocol] = (
             controller_factory if controller_factory is not None else OverlayController
         )
@@ -377,6 +379,7 @@ class NavigatorOverlay:
         self._entry.bind("<Control-grave>", self._on_ctrl_grave)
         self._entry.bind("<Control-onehalf>", self._on_ctrl_grave)
         self._entry.bind("<Control-space>", self._on_ctrl_space)
+        self._entry.bind("<Control-q>", self._on_ctrl_q)
 
         # --- Icon strip (between entry and window list) ---
         strip_frame = tk.Frame(top, bg=c["bg"])
@@ -434,7 +437,8 @@ class NavigatorOverlay:
         self._fetch_time_label.pack(side="right", fill="y")
         _HINTS = (
             "↵ activate  ·  Ctrl+↵ move & activate"
-            "  ·  Ctrl+Space select  ·  Ctrl+Shift+↵ pick desktop"
+            "  ·  Ctrl+Space select  ·  Ctrl+Q close"
+            "  ·  Ctrl+Shift+↵ pick desktop"
             "  ·  Tab app filter  ·  Esc close"
         )
         self._hints_label = tk.Label(
@@ -1148,6 +1152,29 @@ class NavigatorOverlay:
                 self._controller.toggle_hwnd_selection(hwnd)
                 self._refresh_canvas()
         return "break"
+
+    def _on_ctrl_q(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
+        """Close selected window(s) and keep the navigator open (Ctrl+Q)."""
+        self._close_selected()
+        return "break"
+
+    def _close_selected(self) -> None:
+        """Send WM_CLOSE to the focused or multi-selected windows, then refresh the list."""
+        if self._controller is None or self._on_close is None:
+            return
+        multi = self._controller.selected_hwnds
+        if multi:
+            hwnds = list(multi)
+        else:
+            hwnd = self._controller.selected_hwnd()
+            hwnds = [hwnd] if hwnd is not None else []
+        if not hwnds:
+            return
+        self._on_close(hwnds)
+        self._controller.remove_windows(set(hwnds))
+        self._refresh_icon_strip()
+        self._refresh_canvas()
+        self._resize_to_fit()
 
     def _update_bell_badge(self) -> None:
         """Create or destroy the bell badge in the entry bar to reflect controller._bell_filter."""
