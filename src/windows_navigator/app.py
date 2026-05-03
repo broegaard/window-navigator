@@ -637,7 +637,16 @@ def _process_show_queue(
         (w.desktop_number for w in windows if w.is_current_desktop and w.desktop_number > 0),
         0,
     )
-    overlay.show(windows, initial_desktop=desktop, fetch_ms=fetch_ms, open_start=open_start)  # type: ignore[union-attr]
+    # Split into current-desktop and other-desktop windows.  Show the current
+    # desktop immediately (fewer rows → faster Tk render), then append the rest
+    # on the next event-loop tick so they are ready when the user removes the
+    # desktop filter.
+    current_windows = [w for w in windows if w.is_current_desktop]
+    other_windows = [w for w in windows if not w.is_current_desktop]
+    first_batch = current_windows if current_windows else windows
+    overlay.show(first_batch, initial_desktop=desktop, fetch_ms=fetch_ms, open_start=open_start)  # type: ignore[union-attr]
+    if current_windows and other_windows:
+        overlay.schedule_extend(other_windows)  # type: ignore[union-attr]
     tray.update(desktop)  # type: ignore[union-attr]
     if desktop > 0:
         current_desktop[0] = desktop

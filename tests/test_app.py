@@ -281,3 +281,40 @@ def test_tray_updated_with_zero_when_no_current_desktop():
     _process_show_queue(q, provider, MagicMock(), tray, [0])
 
     tray.update.assert_called_once_with(0)
+
+
+def test_progressive_load_splits_current_and_other_desktop():
+    """Current-desktop windows are shown first; other-desktop deferred via schedule_extend."""
+    q: queue.Queue[int] = queue.Queue()
+    q.put(1)
+
+    current = _make_window(desktop_number=1, is_current=True)
+    other = _make_window(desktop_number=2, is_current=False)
+    provider = MagicMock()
+    provider.get_windows.return_value = [current, other]
+    overlay = MagicMock()
+
+    _process_show_queue(q, provider, overlay, MagicMock(), [0])
+
+    # show() receives only the current-desktop window
+    show_args, show_kwargs = overlay.show.call_args
+    assert show_args[0] == [current]
+    # other-desktop window deferred via schedule_extend
+    overlay.schedule_extend.assert_called_once_with([other])
+
+
+def test_progressive_load_shows_all_when_no_current_desktop_windows():
+    """Falls back to showing all windows when none are on the current desktop."""
+    q: queue.Queue[int] = queue.Queue()
+    q.put(1)
+
+    windows = [_make_window(desktop_number=2, is_current=False)]
+    provider = MagicMock()
+    provider.get_windows.return_value = windows
+    overlay = MagicMock()
+
+    _process_show_queue(q, provider, overlay, MagicMock(), [0])
+
+    show_args, _ = overlay.show.call_args
+    assert show_args[0] == windows
+    overlay.schedule_extend.assert_not_called()

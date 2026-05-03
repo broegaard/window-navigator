@@ -258,6 +258,41 @@ class NavigatorOverlay:
             self._fetch_ms = None
             self._open_start = None
 
+    def schedule_extend(self, extra: list[WindowInfo]) -> None:
+        """Queue *extra* windows to be appended on the next Tk event-loop tick.
+
+        Called immediately after show() so the overlay opens with only the
+        current-desktop windows first, then the remaining windows are added
+        without a perceptible delay.  Safe to call when the overlay is already
+        closed — the callback is a no-op in that case.
+        """
+        self._root.after(0, lambda: self.extend_windows(extra))
+
+    def extend_windows(self, extra: list[WindowInfo]) -> None:
+        """Append *extra* windows and refresh the overlay in-place.
+
+        Preserves all active filters, selection, and tab state.  When the
+        current desktop-badge filter is active the new windows are added to
+        the data model but won't appear in the list until the filter is cleared —
+        so this call is visually free in the common case.
+
+        Also starts background tab fetching for the new windows using the same
+        cancel event and generation counter as the initial fetch, so they are
+        cancelled cleanly when the overlay closes.
+        """
+        if self._top is None or self._controller is None:
+            return
+        self._controller.extend_windows(extra)
+        self._refresh_canvas()
+        self._refresh_icon_strip()
+        self._resize_to_fit()
+        if self._fetch_cancel is not None and not self._fetch_cancel.is_set():
+            threading.Thread(
+                target=self._fetch_tabs_bg,
+                args=(list(extra), self._fetch_cancel, self._fetch_gen),
+                daemon=True,
+            ).start()
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------

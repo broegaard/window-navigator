@@ -78,6 +78,7 @@ class OverlayControllerProtocol(
     """
 
     def reset(self, windows: list[WindowInfo]) -> None: ...
+    def extend_windows(self, extra: list[WindowInfo]) -> None: ...
 
 
 class OverlayController:
@@ -389,6 +390,18 @@ class OverlayController:
         self._selected_hwnds = set()
         self.selection_index = 0 if windows else -1
         self._invalidate_text_filter_cache()
+
+    def extend_windows(self, extra: list[WindowInfo]) -> None:
+        """Append *extra* windows without resetting any filter or selection state.
+
+        Used for progressive loading: current-desktop windows are shown first,
+        then other-desktop windows are appended on the next Tk event-loop tick.
+        Filtered views are invalidated so they are recomputed on next access.
+        """
+        self.all_windows.extend(extra)
+        self._invalidate_text_filter_cache()
+        if self.selection_index < 0 and self.all_windows:
+            self.selection_index = 0
 
     # ------------------------------------------------------------------
     # Read helpers

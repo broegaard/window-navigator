@@ -1420,3 +1420,55 @@ def test_reset_clears_selection():
     ctrl.toggle_hwnd_selection(1)
     ctrl.reset(_windows("C", "D"))
     assert ctrl.selected_hwnds == set()
+
+
+# ---------------------------------------------------------------------------
+# extend_windows
+# ---------------------------------------------------------------------------
+
+
+def test_extend_windows_appends_to_all_windows():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.extend_windows(_windows("C"))
+    assert len(ctrl.all_windows) == 3
+
+
+def test_extend_windows_makes_new_windows_visible_in_filtered():
+    ctrl = OverlayController(_windows("A"))
+    ctrl.extend_windows(_windows("B", "C"))
+    assert len(ctrl.filtered_windows) == 3
+
+
+def test_extend_windows_preserves_query_filter():
+    ctrl = OverlayController(_windows("Alpha"))
+    ctrl.set_query("alpha")
+    # Use a distinct hwnd so it doesn't collide with "Alpha" (hwnd=1 from _windows)
+    ctrl.extend_windows([WindowInfo(hwnd=99, title="Beta", process_name="beta.exe")])
+    # "Beta" does not match "alpha" — still only 1 result
+    assert len(ctrl.filtered_windows) == 1
+    # All 2 windows are in all_windows
+    assert len(ctrl.all_windows) == 2
+
+
+def test_extend_windows_preserves_selection():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.move_down()
+    assert ctrl.selection_index == 1
+    ctrl.extend_windows(_windows("C"))
+    assert ctrl.selection_index == 1
+
+
+def test_extend_windows_on_empty_controller_sets_selection_to_zero():
+    ctrl = OverlayController([])
+    assert ctrl.selection_index == -1
+    ctrl.extend_windows(_windows("A"))
+    assert ctrl.selection_index == 0
+
+
+def test_extend_windows_does_not_reset_other_state():
+    ctrl = OverlayController(_windows("A", "B"))
+    ctrl.set_query("A")
+    ctrl.toggle_hwnd_selection(1)
+    ctrl.extend_windows(_windows("C"))
+    assert ctrl.query == "A"
+    assert 1 in ctrl.selected_hwnds
