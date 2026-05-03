@@ -241,6 +241,9 @@ class NavigatorOverlay:
         if self._top is not None:
             self._top.destroy()
             self._top = None
+            # Flush deferred Tk cleanup (geometry teardown, idle redraws) produced
+            # by destroy() so they don't stall the first canvas draw on re-open.
+            self._root.update_idletasks()
             # After destroy(), Windows won't send WM_SETCURSOR to the window beneath
             # until the mouse moves. A 1-px nudge-and-return injects two WM_MOUSEMOVE
             # messages that force WM_SETCURSOR on the underlying window (Firefox /
@@ -608,6 +611,7 @@ class NavigatorOverlay:
         view_top = max(0, min(view_top, total_h - canvas_h))
         view_bottom = view_top + canvas_h
         _t2 = _t.monotonic()
+        _t2b = _t2  # no idle flush here; done in hide() instead
 
         for i, item in enumerate(flat):
             y0 = ys[i]
@@ -778,7 +782,8 @@ class NavigatorOverlay:
             f"[cvs-breakdown2] rows={len(flat)} visible={sum(1 for i,item in enumerate(flat) if not (ys[i]+_row_height(item) <= view_top or ys[i] >= view_bottom))}"
             f"  del={(_t1-_t0)*1000:.1f}ms"
             f"  setup={(_t2-_t1)*1000:.1f}ms"
-            f"  loop={(_t3-_t2)*1000:.1f}ms"
+            f"  idle={(_t2b-_t2)*1000:.1f}ms"
+            f"  loop={(_t3-_t2b)*1000:.1f}ms"
             f"  yview={(_t4-_t3)*1000:.1f}ms"
             f"  TOTAL={(_t4-_t0)*1000:.1f}ms",
             file=sys.stderr,
