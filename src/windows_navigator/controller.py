@@ -68,6 +68,12 @@ class TabControllerProtocol(Protocol):
     @property
     def total_tab_count(self) -> int: ...
 
+    @property
+    def current_desktop_window_count(self) -> int: ...
+
+    @property
+    def current_desktop_tab_count(self) -> int: ...
+
 
 class OverlayControllerProtocol(
     FilterControllerProtocol,
@@ -228,6 +234,20 @@ class OverlayController:
     def total_tab_count(self) -> int:
         """Total number of tabs loaded across all windows."""
         return sum(len(tabs) for tabs in self._tabs.values())
+
+    @property
+    def current_desktop_window_count(self) -> int:
+        """Number of windows on the current virtual desktop."""
+        return sum(1 for w in self.all_windows if w.is_current_desktop)
+
+    @property
+    def current_desktop_tab_count(self) -> int:
+        """Total tabs loaded for windows on the current virtual desktop."""
+        return sum(
+            len(self._tabs[w.hwnd])
+            for w in self.all_windows
+            if w.is_current_desktop and w.hwnd in self._tabs
+        )
 
     def is_expanded(self, hwnd: int) -> bool:
         """True if *hwnd*'s tab list is currently expanded in the overlay."""
