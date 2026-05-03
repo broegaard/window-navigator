@@ -400,8 +400,9 @@ class NavigatorOverlay:
         self._entry.icursor(tk.END)
         self._position_window()
         top.deiconify()
-        # Small delay lets the window finish rendering before grabbing focus.
-        top.after(50, self._grab_focus)
+        # A brief delay lets the SW_SHOWNORMAL focus-flash complete before we
+        # grab focus; 10 ms is enough on all tested hardware (was 50 ms).
+        top.after(10, self._grab_focus)
 
     # ------------------------------------------------------------------
     # Canvas rendering

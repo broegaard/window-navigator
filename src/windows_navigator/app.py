@@ -8,6 +8,7 @@ import re
 import threading
 import time
 import tkinter as tk
+from typing import Callable
 
 from windows_navigator.config import (
     HotkeyChoice,
@@ -18,6 +19,28 @@ from windows_navigator.config import (
 )
 
 _log = logging.getLogger(__name__)
+
+
+class _WakeQueue(queue.Queue):  # type: ignore[type-arg]
+    """A Queue that immediately wakes the Tk main thread on every put().
+
+    The hotkey listener thread calls put() when a trigger fires.  Without this,
+    the Tk thread only notices via a 50 ms poll, adding up to 50 ms of latency.
+    set_wakeup() must be called once from the Tk thread before any put().
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._wakeup: "Callable[[], None] | None" = None
+
+    def set_wakeup(self, fn: "Callable[[], None]") -> None:
+        self._wakeup = fn
+
+    def put(self, item: object, block: bool = True, timeout: "float | None" = None) -> None:
+        super().put(item, block=block, timeout=timeout)
+        if self._wakeup is not None:
+            self._wakeup()
+
 
 # Hotkey IDs passed to RegisterHotKey — must not collide with each other or with
 # the move-hotkey IDs (1 = left, 2 = right) registered in _start_move_hotkey_listener.
@@ -694,7 +717,7 @@ def main() -> None:
         on_move_to=move_windows_to_desktop,
         expand_on_startup=load_expand_on_startup(),
     )
-    show_queue: queue.Queue[int] = queue.Queue()
+    show_queue: _WakeQueue = _WakeQueue()
     move_queue: queue.Queue[tuple[int, int]] = queue.Queue()
 
     _start_move_hotkey_listener(move_queue)
@@ -705,6 +728,10 @@ def main() -> None:
     def poll_queue() -> None:
         _drain_show_queue()
         root.after(50, poll_queue)
+
+    # Wake the Tk thread immediately whenever the hotkey fires — reduces
+    # open latency from up to 50 ms (poll interval) to near-zero.
+    show_queue.set_wakeup(lambda: root.after(0, _drain_show_queue))
 
     from windows_navigator.settings import open_settings_window
 
