@@ -581,7 +581,13 @@ class NavigatorOverlay:
 
         n = len(self._controller.filtered_windows)
         if self._count_label is not None:
-            self._count_label.config(text=f"{n} result{'s' if n != 1 else ''}")
+            total_wins = len(self._controller.all_windows)
+            total_tabs = self._controller.total_tab_count
+            totals = f"  ·  {total_wins} window{'s' if total_wins != 1 else ''}"
+            if total_tabs > 0:
+                totals += f", {total_tabs} tab{'s' if total_tabs != 1 else ''}"
+            totals += " total"
+            self._count_label.config(text=f"{n} result{'s' if n != 1 else ''}{totals}")
 
         # Build cumulative y positions (rows have different heights)
         ys: list[int] = []

@@ -36,6 +36,7 @@ class NavigationControllerProtocol(Protocol):
     """Selection index and movement through the flat window/tab list."""
 
     selection_index: int
+    all_windows: list[WindowInfo]
 
     @property
     def flat_list(self) -> list[WindowInfo | TabInfo]: ...
@@ -63,6 +64,9 @@ class TabControllerProtocol(Protocol):
     def toggle_all_expansions(self) -> None: ...
     def tab_count(self, hwnd: int) -> int: ...
     def is_expanded(self, hwnd: int) -> bool: ...
+
+    @property
+    def total_tab_count(self) -> int: ...
 
 
 class OverlayControllerProtocol(
@@ -219,6 +223,11 @@ class OverlayController:
     def tab_count(self, hwnd: int) -> int:
         """Number of UIA tabs fetched for *hwnd* (0 if none fetched yet)."""
         return len(self._tabs.get(hwnd, []))
+
+    @property
+    def total_tab_count(self) -> int:
+        """Total number of tabs loaded across all windows."""
+        return sum(len(tabs) for tabs in self._tabs.values())
 
     def is_expanded(self, hwnd: int) -> bool:
         """True if *hwnd*'s tab list is currently expanded in the overlay."""
