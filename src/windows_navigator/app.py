@@ -255,10 +255,10 @@ def _polling_double_tap_listener(
                 while time.monotonic() < deadline:
                     if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
                         if msg.message == WM_HOTKEY and msg.wParam == hotkey_id:
-                            show_queue.put(fg)
+                            show_queue.put((fg, time.monotonic()))
                             return
                     time.sleep(0.005)
-            show_queue.put(fg)
+            show_queue.put((fg, time.monotonic()))
 
         last_tap_ms = 0.0
         tap_was_down = False
@@ -322,7 +322,7 @@ def _run_registered_hotkey(
             while not stop_event.is_set():
                 if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
                     if msg.message == WM_HOTKEY and msg.wParam == hotkey_id:
-                        show_queue.put(user32.GetForegroundWindow())
+                        show_queue.put((user32.GetForegroundWindow(), time.monotonic()))
                 else:
                     time.sleep(0.010)
         finally:
@@ -592,7 +592,7 @@ def _start_move_hotkey_listener(move_queue: queue.Queue[tuple[int, int]]) -> Non
 
 
 def _process_show_queue(
-    show_queue: "queue.Queue[int]",
+    show_queue: "queue.Queue[tuple[int, float]]",
     provider: object,
     overlay: object,
     tray: object,
@@ -608,22 +608,30 @@ def _process_show_queue(
     the caller's tracking variable is updated after a successful enumeration.
     Only updated when a valid desktop number (> 0) is found.
 
-    The queue items are the foreground HWND captured at trigger time (via
-    GetForegroundWindow).  EnumWindows Z-order can lag slightly after a rapid
-    Alt+Tab, so we use that HWND to anchor the list: if the captured foreground
-    window is not already first, we move it there.
+    Queue items are ``(hwnd, trigger_time)`` tuples where *hwnd* is the
+    foreground window captured at trigger time and *trigger_time* is the
+    ``time.monotonic()`` timestamp of the trigger.  The first ``hwnd`` is used
+    to anchor the window list (EnumWindows Z-order can lag after a rapid
+    Alt+Tab); the first ``trigger_time`` measures queue-drain latency.
     """
     trigger_hwnd: int = 0
+    first_trigger_time: float = 0.0
     has_items = False
     try:
         while True:
-            trigger_hwnd = show_queue.get_nowait()
+            hwnd, t = show_queue.get_nowait()
+            if not has_items:
+                first_trigger_time = t
+            trigger_hwnd = hwnd
             has_items = True
     except queue.Empty:
         pass
     if not has_items:
         return
     open_start = time.monotonic()
+    queue_lag_ms: float | None = (
+        (open_start - first_trigger_time) * 1000.0 if first_trigger_time > 0 else None
+    )
     t0 = open_start
     windows = provider.get_windows()  # type: ignore[union-attr]
     fetch_ms = (time.monotonic() - t0) * 1000.0
@@ -644,7 +652,7 @@ def _process_show_queue(
     current_windows = [w for w in windows if w.is_current_desktop]
     other_windows = [w for w in windows if not w.is_current_desktop]
     first_batch = current_windows if current_windows else windows
-    overlay.show(first_batch, initial_desktop=desktop, fetch_ms=fetch_ms, open_start=open_start)  # type: ignore[union-attr]
+    overlay.show(first_batch, initial_desktop=desktop, fetch_ms=fetch_ms, open_start=open_start, queue_lag_ms=queue_lag_ms)  # type: ignore[union-attr]
     if current_windows and other_windows:
         overlay.schedule_extend(other_windows)  # type: ignore[union-attr]
     tray.update(desktop)  # type: ignore[union-attr]

@@ -112,7 +112,7 @@ def test_all_four_choices_produce_distinct_hotkey_ids():
 
 def test_start_hotkey_listener_starts_daemon_thread():
     """_start_hotkey_listener must spawn exactly one daemon thread."""
-    q: queue.Queue[int] = queue.Queue()
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
     stop = threading.Event()
 
     with patch("windows_navigator.app.threading.Thread") as mock_thread_cls:
@@ -133,7 +133,7 @@ def test_start_hotkey_listener_starts_daemon_thread():
 
 def test_empty_queue_is_a_noop():
     """If nothing is queued, overlay.show must not be called."""
-    q: queue.Queue[int] = queue.Queue()
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
     provider = MagicMock()
     overlay = MagicMock()
     tray = MagicMock()
@@ -148,8 +148,8 @@ def test_empty_queue_is_a_noop():
 
 def test_single_item_triggers_overlay_show():
     """One queued item → provider.get_windows() and overlay.show() are each called once."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     windows = [_make_window(desktop_number=2, is_current=True)]
     provider = MagicMock()
@@ -161,16 +161,18 @@ def test_single_item_triggers_overlay_show():
     _process_show_queue(q, provider, overlay, tray, ref)
 
     provider.get_windows.assert_called_once()
-    overlay.show.assert_called_once_with(windows, initial_desktop=2, fetch_ms=ANY, open_start=ANY)
+    overlay.show.assert_called_once_with(
+        windows, initial_desktop=2, fetch_ms=ANY, open_start=ANY, queue_lag_ms=ANY
+    )
     tray.update.assert_called_once_with(2)
     assert ref[0] == 2
 
 
 def test_multiple_items_coalesced_into_one_show():
     """Multiple queued items must result in exactly one overlay.show() call."""
-    q: queue.Queue[int] = queue.Queue()
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
     for i in range(5):
-        q.put(i)
+        q.put((i, 0.0))
 
     provider = MagicMock()
     provider.get_windows.return_value = [_make_window()]
@@ -186,8 +188,8 @@ def test_multiple_items_coalesced_into_one_show():
 
 def test_current_desktop_ref_updated_when_desktop_found():
     """*current_desktop* list is updated to the found desktop number."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     provider = MagicMock()
     provider.get_windows.return_value = [_make_window(desktop_number=3, is_current=True)]
@@ -200,8 +202,8 @@ def test_current_desktop_ref_updated_when_desktop_found():
 
 def test_current_desktop_ref_not_updated_when_no_valid_desktop():
     """If no window has is_current_desktop=True and desktop_number>0, the ref is NOT touched."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     windows = [
         _make_window(desktop_number=0, is_current=True),  # desktop 0 — excluded from tracking
@@ -218,8 +220,8 @@ def test_current_desktop_ref_not_updated_when_no_valid_desktop():
 
 def test_overlay_show_receives_fetch_ms_as_float():
     """fetch_ms is derived from wall-clock time and must be a non-negative float."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     provider = MagicMock()
     provider.get_windows.return_value = [_make_window()]
@@ -235,8 +237,8 @@ def test_overlay_show_receives_fetch_ms_as_float():
 
 def test_overlay_show_receives_open_start_as_float():
     """open_start is a monotonic timestamp passed for total-load-time measurement."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     provider = MagicMock()
     provider.get_windows.return_value = [_make_window()]
@@ -256,8 +258,8 @@ def test_overlay_show_receives_open_start_as_float():
 
 def test_tray_updated_with_correct_desktop_number():
     """tray.update() is called with the desktop number found in the window list."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     provider = MagicMock()
     provider.get_windows.return_value = [_make_window(desktop_number=4, is_current=True)]
@@ -270,8 +272,8 @@ def test_tray_updated_with_correct_desktop_number():
 
 def test_tray_updated_with_zero_when_no_current_desktop():
     """tray.update(0) is still called when no current desktop window is found."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     windows = [_make_window(desktop_number=0, is_current=True)]
     provider = MagicMock()
@@ -285,8 +287,8 @@ def test_tray_updated_with_zero_when_no_current_desktop():
 
 def test_progressive_load_splits_current_and_other_desktop():
     """Current-desktop windows are shown first; other-desktop deferred via schedule_extend."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     current = _make_window(desktop_number=1, is_current=True)
     other = _make_window(desktop_number=2, is_current=False)
@@ -305,8 +307,8 @@ def test_progressive_load_splits_current_and_other_desktop():
 
 def test_progressive_load_shows_all_when_no_current_desktop_windows():
     """Falls back to showing all windows when none are on the current desktop."""
-    q: queue.Queue[int] = queue.Queue()
-    q.put(1)
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
 
     windows = [_make_window(desktop_number=2, is_current=False)]
     provider = MagicMock()

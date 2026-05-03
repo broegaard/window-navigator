@@ -164,6 +164,8 @@ class NavigatorOverlay:
         self._fetch_time_label: tk.Label | None = None
         self._fetch_ms: float | None = None
         self._open_start: float | None = None
+        self._queue_lag_ms: float | None = None
+        self._entry_inner_h: int | None = None  # cached after first open; avoids update_idletasks()
         self._closing: bool = False  # True while handing focus to a target window
         self._picker_open: bool = False  # True while desktop-picker popup is visible
         self._fetch_cancel: threading.Event | None = None
@@ -183,6 +185,7 @@ class NavigatorOverlay:
         initial_desktop: int = 0,
         fetch_ms: float | None = None,
         open_start: float | None = None,
+        queue_lag_ms: float | None = None,
     ) -> None:
         """Open (or refresh) the overlay with *windows*.
 
@@ -206,7 +209,15 @@ class NavigatorOverlay:
         self._initial_desktop = initial_desktop
         self._fetch_ms = fetch_ms
         self._open_start = open_start
-        self._photo_image_cache.clear()
+        self._queue_lag_ms = queue_lag_ms
+        # Prune stale PhotoImage cache entries rather than clearing wholesale.
+        # Keeping valid entries avoids recreating ImageTk.PhotoImage objects on every
+        # open — those PIL→Tk conversions dominate _refresh_icon_strip() cost.
+        # PIL image objects are stable across BackgroundWindowCache calls within the same
+        # refresh cycle, so id(w.icon) stays the same and cache hits are valid.
+        live_ids = {id(w.icon) for w in windows if w.icon is not None}
+        for stale in [k for k in self._photo_image_cache if k not in live_ids]:
+            del self._photo_image_cache[stale]
         if self._fetch_cancel is not None:
             self._fetch_cancel.set()
         self._fetch_cancel = threading.Event()
@@ -257,6 +268,7 @@ class NavigatorOverlay:
             self._fetch_time_label = None
             self._fetch_ms = None
             self._open_start = None
+            self._queue_lag_ms = None
 
     def schedule_extend(self, extra: list[WindowInfo]) -> None:
         """Queue *extra* windows to be appended on the next Tk event-loop tick.
@@ -298,10 +310,18 @@ class NavigatorOverlay:
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
+        import sys
+        import time as _time
+
         assert self._controller is not None
         c = _colors()
 
+        t_build_start = _time.monotonic()
+
         top = tk.Toplevel(self._root)
+        # Withdraw immediately so canvas items are drawn to a hidden buffer;
+        # this avoids compositor overhead during construction.
+        top.withdraw()
         top.overrideredirect(True)
         top.attributes("-topmost", True)
         top.configure(bg=c["border"])
@@ -328,10 +348,16 @@ class NavigatorOverlay:
             highlightthickness=0,
         )
         self._entry.pack(side="left", fill="x", expand=True)
-        # Freeze the entry bar height at the Text widget's natural size so that
+        # Freeze the entry bar height at the Entry widget's natural size so that
         # adding or removing badge widgets never causes a vertical resize.
-        self._entry_inner.update_idletasks()
+        # On the first open we measure via update_idletasks() and cache the result;
+        # every subsequent open uses the cached height to skip the expensive sync.
+        if self._entry_inner_h is None:
+            self._entry_inner.update_idletasks()
+            self._entry_inner_h = self._entry_inner.winfo_reqheight()
+        self._entry_inner.configure(height=self._entry_inner_h)
         self._entry_inner.pack_propagate(False)
+        t_after_idletasks = _time.monotonic()
         self._entry.bind("<BackSpace>", self._on_backspace)
         self._entry.bind("<Control-BackSpace>", self._on_ctrl_backspace)
         self._entry.bind("<Control-w>", self._on_ctrl_backspace)
@@ -432,20 +458,81 @@ class NavigatorOverlay:
         top.bind("<Control-Tab>", self._on_ctrl_tab)
 
         self._top = top
-        # Apply initial desktop badge and controller filter.
-        self._set_query_state([self._initial_desktop] if self._initial_desktop else [], "")
+        t_after_widgets = _time.monotonic()
+        # Apply initial desktop badge and controller filter — inlined for per-phase timing.
+        self._update_prefix_badges([self._initial_desktop] if self._initial_desktop else [])
+        if self._entry is not None:
+            self._entry.delete(0, tk.END)
+        if self._controller:
+            self._controller.set_desktop_nums(
+                {self._initial_desktop} if self._initial_desktop else set()
+            )
+            self._controller.set_query("")
+        t_after_filter = _time.monotonic()
+        self._refresh_icon_strip()
+        t_after_icon_strip = _time.monotonic()
+        self._refresh_canvas()
+        t_after_canvas_draw = _time.monotonic()
         if self._expand_on_startup:
             self._controller.toggle_all_expansions()
+            self._refresh_canvas()
+        self._resize_to_fit()
+        t_after_canvas = _time.monotonic()
         self._entry.icursor(tk.END)
         self._position_window()
+        t_after_position = _time.monotonic()
         top.deiconify()
-        # Stamp total open time (trigger → window visible) now that the window
-        # is on screen.  Overwrites the initial fetch-time placeholder.
-        if self._open_start is not None and self._fetch_time_label is not None:
-            import time as _time
+        t_after_deiconify = _time.monotonic()
 
-            total_ms = (_time.monotonic() - self._open_start) * 1000.0
-            self._fetch_time_label.config(text=f"{total_ms:.0f} ms")
+        # --- Timing breakdown ---
+        idletasks_ms = (t_after_idletasks - t_build_start) * 1000.0
+        widgets_ms = (t_after_widgets - t_after_idletasks) * 1000.0
+        filter_ms = (t_after_filter - t_after_widgets) * 1000.0
+        icon_strip_ms = (t_after_icon_strip - t_after_filter) * 1000.0
+        canvas_draw_ms = (t_after_canvas_draw - t_after_icon_strip) * 1000.0
+        resize_ms = (t_after_canvas - t_after_canvas_draw) * 1000.0
+        position_ms = (t_after_position - t_after_canvas) * 1000.0
+        deiconify_ms = (t_after_deiconify - t_after_position) * 1000.0
+        ui_ms = (t_after_deiconify - t_build_start) * 1000.0
+        total_ms = (
+            (t_after_deiconify - self._open_start) * 1000.0
+            if self._open_start is not None
+            else ui_ms
+        )
+        q_ms = self._queue_lag_ms
+        get_ms_str = f"{self._fetch_ms:.0f}ms" if self._fetch_ms is not None else "?ms"
+        q_ms_str = f"{q_ms:.0f}ms" if q_ms is not None else "?ms"
+        print(
+            f"[nav-timing]"
+            f"  queue_lag={q_ms_str}"
+            f"  get_windows={get_ms_str}"
+            f"  toplevel+entry={idletasks_ms:.0f}ms"
+            f"  widgets={widgets_ms:.0f}ms"
+            f"  filter={filter_ms:.0f}ms"
+            f"  icon_strip={icon_strip_ms:.0f}ms"
+            f"  canvas_draw={canvas_draw_ms:.0f}ms"
+            f"  resize={resize_ms:.0f}ms"
+            f"  position={position_ms:.0f}ms"
+            f"  deiconify={deiconify_ms:.0f}ms"
+            f"  ui={ui_ms:.0f}ms"
+            f"  TOTAL={total_ms:.0f}ms",
+            file=sys.stderr,
+        )
+        # Build compact footer string for at-a-glance diagnosis.
+        footer_parts: list[str] = []
+        if q_ms is not None:
+            footer_parts.append(f"q={q_ms:.0f}")
+        if self._fetch_ms is not None:
+            footer_parts.append(f"get={self._fetch_ms:.0f}")
+        footer_parts.append(f"idle={idletasks_ms:.0f}")
+        footer_parts.append(f"wgt={widgets_ms:.0f}")
+        footer_parts.append(f"strip={icon_strip_ms:.0f}")
+        footer_parts.append(f"cvs={canvas_draw_ms:.0f}")
+        footer_parts.append(f"rsz={resize_ms:.0f}")
+        footer_parts.append(f"vis={deiconify_ms:.0f}")
+        footer_text = "  ".join(footer_parts) + f"  | {total_ms:.0f}ms"
+        if self._fetch_time_label is not None:
+            self._fetch_time_label.config(text=footer_text)
         # A brief delay lets the SW_SHOWNORMAL focus-flash complete before we
         # grab focus; 10 ms is enough on all tested hardware (was 50 ms).
         top.after(10, self._grab_focus)
