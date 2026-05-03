@@ -301,12 +301,22 @@ class OverlayController:
         else:
             self._expanded |= hwnds_with_tabs
             self._want_all_expanded = True
+        # Capture selected window identity before invalidating so we can
+        # re-seek by hwnd rather than clamping by index.
+        selected_item = self.selected_item()
+        selected_hwnd = selected_item.hwnd if selected_item is not None else None
         self._invalidate_view_caches()
-        n = len(self.flat_list)
-        if n == 0:
+        flat = self.flat_list
+        if not flat:
             self.selection_index = -1
-        elif self.selection_index >= n:
-            self.selection_index = n - 1
+            return
+        if selected_hwnd is not None:
+            for i, item in enumerate(flat):
+                if item.hwnd == selected_hwnd and isinstance(item, WindowInfo):
+                    self.selection_index = i
+                    return
+        if self.selection_index >= len(flat):
+            self.selection_index = len(flat) - 1
 
     def selected_item(self) -> WindowInfo | TabInfo | None:
         """Return the currently selected item (window row or tab row), or None."""
