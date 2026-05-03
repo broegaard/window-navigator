@@ -264,6 +264,20 @@ def move_window_to_current_desktop(hwnd: int) -> bool:
         return False
 
 
+def create_desktop() -> int:
+    """Create a new virtual desktop and return its 1-based number.
+
+    Returns 0 on failure.
+    """
+    try:
+        from pyvda import VirtualDesktop  # type: ignore[import]
+
+        new = VirtualDesktop.create()
+        return int(new.number)
+    except Exception:
+        return 0
+
+
 def move_window_to_desktop_number(hwnd: int, n: int) -> bool:
     """Move *hwnd* to the Nth virtual desktop (1-based). Returns True on success.
 

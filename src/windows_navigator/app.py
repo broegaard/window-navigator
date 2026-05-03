@@ -648,9 +648,20 @@ def main() -> None:
         provider.request_refresh()  # window moved; pre-warm cache for next open
 
     def move_windows_to_desktop(hwnds: list[int], n: int) -> None:
-        """Move every hwnd in *hwnds* to desktop *n* (1-based); activate the last one."""
-        from windows_navigator.virtual_desktop import move_window_to_desktop_number, switch_to_desktop_number
+        """Move every hwnd in *hwnds* to desktop *n* (1-based); activate the last one.
 
+        Pass n=0 to create a new desktop and move the windows there.
+        """
+        from windows_navigator.virtual_desktop import (
+            create_desktop,
+            move_window_to_desktop_number,
+            switch_to_desktop_number,
+        )
+
+        if n == 0:
+            n = create_desktop()
+            if n == 0:
+                return  # creation failed; do nothing
         for hwnd in hwnds[:-1]:
             move_window_to_desktop_number(hwnd, n)
         if hwnds:

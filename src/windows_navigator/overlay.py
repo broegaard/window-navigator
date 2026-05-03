@@ -1179,6 +1179,19 @@ class NavigatorOverlay:
             )
             btn.pack(side="left", padx=2)
 
+        # "New desktop" button
+        tk.Button(
+            frame,
+            text="+ N",
+            bg=c["border"],
+            fg=c["title_fg"],
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            height=1,
+            command=lambda: _select(0),
+        ).pack(side="left", padx=(6, 2))
+
         # Position the picker just below the overlay, horizontally centred
         self._top.update_idletasks()
         picker.update_idletasks()
@@ -1192,6 +1205,8 @@ class NavigatorOverlay:
                 n = int(event.keysym)
                 if 1 <= n <= desktop_count:
                     _select(n)
+            elif event.keysym in ("n", "N"):
+                _select(0)
             elif event.keysym == "Escape":
                 _cancel()
 
