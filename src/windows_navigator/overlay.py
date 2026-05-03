@@ -739,6 +739,23 @@ class NavigatorOverlay:
                 width=canvas_w - _TEXT_X - 8,
             )
 
+            # Tab count — right-aligned muted label; shifts left when bell/checkbox are visible
+            tc = self._controller.tab_count(w.hwnd)
+            if tc > 0:
+                tc_x = canvas_w - 8
+                if any_selected:
+                    tc_x -= _CHECKBOX_SIZE + _CHECKBOX_MARGIN + 4
+                if w.has_notification:
+                    tc_x -= 26
+                self._canvas.create_text(
+                    tc_x,
+                    (y0 + y1) // 2,
+                    text=f"{tc} tab{'s' if tc != 1 else ''}",
+                    fill=c["proc_fg"],
+                    font=("Segoe UI", 8),
+                    anchor="e",
+                )
+
             # Notification bell — amber bell glyph at right edge; shifts left in multi-select mode
             if w.has_notification:
                 cy = (y0 + y1) // 2
