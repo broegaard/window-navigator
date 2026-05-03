@@ -1247,6 +1247,10 @@ class NavigatorOverlay:
         new_h = max(min(sum(_row_height(item) for item in flat), max_h), _ROW_HEIGHT)
         self._canvas.configure(height=new_h)
         self._position_window()
+        # Flush pending geometry changes so winfo_height() reflects the new size
+        # before _refresh_canvas() clips rows against the visible viewport.
+        self._canvas.update_idletasks()
+        self._refresh_canvas()
 
     def _on_arrow_up(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
         if self._controller:
