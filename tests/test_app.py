@@ -295,6 +295,7 @@ def test_progressive_load_splits_current_and_other_desktop():
     provider = MagicMock()
     provider.get_windows.return_value = [current, other]
     overlay = MagicMock()
+    overlay.is_visible = False  # fresh open — schedule_extend must fire
 
     _process_show_queue(q, provider, overlay, MagicMock(), [0])
 
@@ -303,6 +304,23 @@ def test_progressive_load_splits_current_and_other_desktop():
     assert show_args[0] == [current]
     # other-desktop window deferred via schedule_extend
     overlay.schedule_extend.assert_called_once_with([other])
+
+
+def test_progressive_load_skips_extend_when_overlay_already_visible():
+    """When the overlay is already open, schedule_extend must NOT be called (fixes count drift)."""
+    q: queue.Queue[tuple[int, float]] = queue.Queue()
+    q.put((1, 0.0))
+
+    current = _make_window(desktop_number=1, is_current=True)
+    other = _make_window(desktop_number=2, is_current=False)
+    provider = MagicMock()
+    provider.get_windows.return_value = [current, other]
+    overlay = MagicMock()
+    overlay.is_visible = True  # already open — must NOT extend again
+
+    _process_show_queue(q, provider, overlay, MagicMock(), [0])
+
+    overlay.schedule_extend.assert_not_called()
 
 
 def test_progressive_load_shows_all_when_no_current_desktop_windows():
@@ -314,6 +332,7 @@ def test_progressive_load_shows_all_when_no_current_desktop_windows():
     provider = MagicMock()
     provider.get_windows.return_value = windows
     overlay = MagicMock()
+    overlay.is_visible = False
 
     _process_show_queue(q, provider, overlay, MagicMock(), [0])
 

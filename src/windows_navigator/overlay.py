@@ -182,6 +182,11 @@ class NavigatorOverlay:
         """Update the expand-on-startup setting (takes effect on the next show())."""
         self._expand_on_startup = value
 
+    @property
+    def is_visible(self) -> bool:
+        """True while the overlay Toplevel is open."""
+        return self._top is not None
+
     def show(
         self,
         windows: list[WindowInfo],

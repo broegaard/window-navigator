@@ -652,8 +652,9 @@ def _process_show_queue(
     current_windows = [w for w in windows if w.is_current_desktop]
     other_windows = [w for w in windows if not w.is_current_desktop]
     first_batch = current_windows if current_windows else windows
+    was_visible = overlay.is_visible  # type: ignore[union-attr]
     overlay.show(first_batch, initial_desktop=desktop, fetch_ms=fetch_ms, open_start=open_start, queue_lag_ms=queue_lag_ms)  # type: ignore[union-attr]
-    if current_windows and other_windows:
+    if not was_visible and current_windows and other_windows:
         overlay.schedule_extend(other_windows)  # type: ignore[union-attr]
     tray.update(desktop)  # type: ignore[union-attr]
     if desktop > 0:
