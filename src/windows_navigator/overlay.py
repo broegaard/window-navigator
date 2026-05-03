@@ -557,10 +557,15 @@ class NavigatorOverlay:
     # ------------------------------------------------------------------
 
     def _refresh_canvas(self) -> None:
+        import sys
+        import time as _t
+
+        _t0 = _t.monotonic()
         if self._controller is None or self._canvas is None:
             return
         c = _colors()
         self._canvas.delete("all")
+        _t1 = _t.monotonic()
 
         flat = self._controller.flat_list
         sel = self._controller.selection_index
@@ -602,6 +607,7 @@ class NavigatorOverlay:
                 view_top = sel_y1 - canvas_h
         view_top = max(0, min(view_top, total_h - canvas_h))
         view_bottom = view_top + canvas_h
+        _t2 = _t.monotonic()
 
         for i, item in enumerate(flat):
             y0 = ys[i]
@@ -764,7 +770,19 @@ class NavigatorOverlay:
                     )
 
         # Scroll to the pre-computed destination (already accounts for selection visibility).
+        _t3 = _t.monotonic()
         self._canvas.yview_moveto(view_top / total_h)
+        _t4 = _t.monotonic()
+
+        print(
+            f"[cvs-breakdown2] rows={len(flat)} visible={sum(1 for i,item in enumerate(flat) if not (ys[i]+_row_height(item) <= view_top or ys[i] >= view_bottom))}"
+            f"  del={(_t1-_t0)*1000:.1f}ms"
+            f"  setup={(_t2-_t1)*1000:.1f}ms"
+            f"  loop={(_t3-_t2)*1000:.1f}ms"
+            f"  yview={(_t4-_t3)*1000:.1f}ms"
+            f"  TOTAL={(_t4-_t0)*1000:.1f}ms",
+            file=sys.stderr,
+        )
 
     def _refresh_selection_only(self, old_sel: int, new_sel: int) -> None:
         """Update only the highlight color of the two affected rows and scroll into view.
