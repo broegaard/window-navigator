@@ -207,7 +207,6 @@ class NavigatorOverlay:
                 self._pending_hide = None
             assert self._controller is not None
             self._controller.toggle_all_expansions()
-            self._refresh_canvas()
             self._resize_to_fit()
             self._top.lift()
             self._top.after(50, self._grab_focus)
@@ -267,7 +266,10 @@ class NavigatorOverlay:
                 _u.SetCursorPos(_pt.x, _pt.y)
             except Exception:
                 pass
-            self._photo_image_cache.clear()
+            # Keep _photo_image_cache across closes: show() prunes stale entries on
+            # re-open, and ImageTk.PhotoImage objects survive Toplevel destruction as
+            # long as the root interpreter is alive.  Clearing here forces all PIL→Tk
+            # conversions to repeat on every open (~220 ms for a typical icon set).
             self._canvas = None
             self._strip_canvas = None
             self._entry = None
@@ -306,7 +308,6 @@ class NavigatorOverlay:
         if self._top is None or self._controller is None:
             return
         self._controller.extend_windows(extra)
-        self._refresh_canvas()
         self._refresh_icon_strip()
         self._resize_to_fit()
         if self._fetch_cancel is not None and not self._fetch_cancel.is_set():
@@ -498,11 +499,11 @@ class NavigatorOverlay:
         t_after_filter = _time.monotonic()
         self._refresh_icon_strip()
         t_after_icon_strip = _time.monotonic()
-        self._refresh_canvas()
-        t_after_canvas_draw = _time.monotonic()
+        # First canvas draw is deferred to _resize_to_fit() below (which calls
+        # update_idletasks + _refresh_canvas with accurate geometry).
+        t_after_canvas_draw = t_after_icon_strip  # canvas_draw=0 in timing output
         if self._expand_on_startup:
             self._controller.toggle_all_expansions()
-            self._refresh_canvas()
         self._resize_to_fit()
         t_after_canvas = _time.monotonic()
         self._entry.icursor(tk.END)
@@ -580,6 +581,7 @@ class NavigatorOverlay:
         _t1 = _t.monotonic()
 
         flat = self._controller.flat_list
+        _tS1 = _t.monotonic()
         sel = self._controller.selection_index
         canvas_w = _OVERLAY_WIDTH
         any_selected = bool(self._controller.selected_hwnds)
@@ -594,6 +596,7 @@ class NavigatorOverlay:
             if total_tabs > 0:
                 totals += f",  {cur_tabs}/{total_tabs} tab{'s' if total_tabs != 1 else ''}"
             self._count_label.config(text=f"{n} result{'s' if n != 1 else ''}{totals}")
+        _tS2 = _t.monotonic()
 
         # Build cumulative y positions (rows have different heights)
         ys: list[int] = []
@@ -604,6 +607,7 @@ class NavigatorOverlay:
         total_h = max(y, 1)
 
         self._canvas.configure(scrollregion=(0, 0, canvas_w, total_h))
+        _tS3 = _t.monotonic()
 
         # --- Virtual rendering: only draw rows within the visible viewport ---
         # winfo_reqheight() is reliable even for a withdrawn (not-yet-shown) window.
@@ -612,6 +616,7 @@ class NavigatorOverlay:
             canvas_h = self._canvas.winfo_reqheight()
         if canvas_h <= 1:
             canvas_h = _MAX_ROWS_VISIBLE * _ROW_HEIGHT  # last-resort fallback
+        _tS4 = _t.monotonic()
 
         # Scroll position in pixels (Tk preserves this across delete/configure).
         view_top = int(self._canvas.yview()[0] * total_h)
@@ -627,6 +632,10 @@ class NavigatorOverlay:
         view_top = max(0, min(view_top, total_h - canvas_h))
         view_bottom = view_top + canvas_h
         _t2 = _t.monotonic()
+        _tS_flat = (_tS1 - _t1) * 1000.0
+        _tS_label = (_tS2 - _tS1) * 1000.0
+        _tS_scrollrgn = (_tS3 - _tS2) * 1000.0
+        _tS_winfo = (_tS4 - _tS3) * 1000.0
         _t2b = _t2  # no idle flush here; done in hide() instead
 
         for i, item in enumerate(flat):
@@ -815,6 +824,7 @@ class NavigatorOverlay:
             f"[cvs-breakdown2] rows={len(flat)} visible={sum(1 for i,item in enumerate(flat) if not (ys[i]+_row_height(item) <= view_top or ys[i] >= view_bottom))}"
             f"  del={(_t1-_t0)*1000:.1f}ms"
             f"  setup={(_t2-_t1)*1000:.1f}ms"
+            f"  (flat={_tS_flat:.1f} label={_tS_label:.1f} scrollrgn={_tS_scrollrgn:.1f} winfo={_tS_winfo:.1f})"
             f"  idle={(_t2b-_t2)*1000:.1f}ms"
             f"  loop={(_t3-_t2b)*1000:.1f}ms"
             f"  yview={(_t4-_t3)*1000:.1f}ms"
@@ -931,7 +941,6 @@ class NavigatorOverlay:
         if new_text != self._controller.query:
             self._controller.set_query(new_text)
         self._refresh_icon_strip()
-        self._refresh_canvas()
         self._resize_to_fit()
 
     def _on_tab(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
@@ -951,7 +960,6 @@ class NavigatorOverlay:
     def _on_ctrl_tab(self, _event: tk.Event) -> str:  # type: ignore[type-arg]
         if self._controller:
             self._controller.toggle_all_expansions()
-            self._refresh_canvas()
             self._resize_to_fit()
         return "break"
 
@@ -1032,8 +1040,7 @@ class NavigatorOverlay:
         if self._controller is None or self._canvas is None or self._fetch_gen != gen:
             return
         self._controller.set_tabs(hwnd, tabs)
-        if self._controller.is_expanded(hwnd):
-            self._refresh_canvas()
+        if self._controller and self._controller.is_expanded(hwnd):
             self._resize_to_fit()
         else:
             # Redraw just to show the ▸ indicator on the window row
@@ -1044,12 +1051,11 @@ class NavigatorOverlay:
             self._controller.toggle_bell_filter()
             self._update_bell_badge()
             self._refresh_icon_strip()
-            self._refresh_canvas()
             self._resize_to_fit()
         elif self._controller and self._controller.app_filter is not None:
             self._controller.clear_app_filter()
             self._refresh_icon_strip()
-            self._refresh_canvas()
+            self._resize_to_fit()
         else:
             startup_nums = [self._initial_desktop] if self._initial_desktop else []
             at_startup = self._desktop_prefix_nums == startup_nums and (
@@ -1068,7 +1074,6 @@ class NavigatorOverlay:
             self._controller.toggle_bell_filter()
             self._update_bell_badge()
             self._refresh_icon_strip()
-            self._refresh_canvas()
             self._resize_to_fit()
             return "break"
         if self._desktop_prefix_nums:
@@ -1169,7 +1174,6 @@ class NavigatorOverlay:
             self._controller.toggle_bell_filter()
             self._update_bell_badge()
             self._refresh_icon_strip()
-            self._refresh_canvas()
             self._resize_to_fit()
         return "break"
 
@@ -1202,7 +1206,6 @@ class NavigatorOverlay:
         self._on_close(hwnds)
         self._controller.remove_windows(set(hwnds))
         self._refresh_icon_strip()
-        self._refresh_canvas()
         self._resize_to_fit()
 
     def _update_bell_badge(self) -> None:
@@ -1483,7 +1486,6 @@ class NavigatorOverlay:
             self._controller.set_desktop_nums(set(nums))
             self._controller.set_query(text)
         self._refresh_icon_strip()
-        self._refresh_canvas()
         self._resize_to_fit()
 
     def _update_prefix_badges(self, nums: list[int]) -> None:
