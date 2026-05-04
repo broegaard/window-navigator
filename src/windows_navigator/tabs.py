@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 import threading
 from collections import OrderedDict
-from pathlib import Path
 from urllib.parse import urlparse
 
 from windows_navigator.models import TabInfo
@@ -33,41 +30,6 @@ _ADDRESS_BAR_KEYWORDS = ("urlbar", "addressbar", "omnibox", "location")
 _tab_domain_cache: OrderedDict[str, str] = OrderedDict()
 _tab_domain_cache_lock = threading.Lock()
 _TAB_DOMAIN_CACHE_MAX = 256
-
-
-def _cache_file_path() -> Path:
-    appdata = os.environ.get("APPDATA")
-    base = Path(appdata) if appdata else (Path.home() / ".config")
-    return base / "windows-navigator" / "tab_domain_cache.json"
-
-
-def _load_tab_domain_cache() -> None:
-    try:
-        data = json.loads(_cache_file_path().read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            for k, v in data.items():
-                if isinstance(k, str) and isinstance(v, str):
-                    _tab_domain_cache[k] = v
-                    if len(_tab_domain_cache) >= _TAB_DOMAIN_CACHE_MAX:
-                        break
-    except FileNotFoundError:
-        pass
-    except (ValueError, OSError):
-        pass
-
-
-def _save_tab_domain_cache(snapshot: dict[str, str]) -> None:
-    try:
-        path = _cache_file_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError:
-        pass
-
-
-_load_tab_domain_cache()
 
 
 def _domain_from_full_description(value: object) -> str:
@@ -240,26 +202,18 @@ def fetch_tabs(hwnd: int) -> list[TabInfo]:
                     if _is_tab_selected(el):
                         result[i].domain = domain
                         break
-        # Update/read persistent domain cache so that inactive tabs (e.g. Firefox tabs
-        # not currently active) retain their domain across overlay opens.
-        _dirty = False
-        snapshot: dict[str, str] | None = None
+        # Update in-memory domain cache so inactive tabs (e.g. Firefox tabs not currently
+        # active) retain their domain within the session.
         with _tab_domain_cache_lock:
             for tab in result:
                 if tab.domain:
-                    if _tab_domain_cache.get(tab.name) != tab.domain:
-                        _tab_domain_cache[tab.name] = tab.domain
-                        _dirty = True
+                    _tab_domain_cache[tab.name] = tab.domain
                     _tab_domain_cache.move_to_end(tab.name)
                     if len(_tab_domain_cache) > _TAB_DOMAIN_CACHE_MAX:
                         _tab_domain_cache.popitem(last=False)
                 elif tab.name in _tab_domain_cache:
                     tab.domain = _tab_domain_cache[tab.name]
                     _tab_domain_cache.move_to_end(tab.name)
-            if _dirty:
-                snapshot = dict(_tab_domain_cache)
-        if snapshot is not None:
-            _save_tab_domain_cache(snapshot)
         return result
     except Exception:
         return []

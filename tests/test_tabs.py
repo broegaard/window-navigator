@@ -1,20 +1,16 @@
 """Tests for tabs.py — UIA tab discovery helpers."""
 
-import json
 from unittest.mock import MagicMock, patch
 
 import windows_navigator.tabs as tabs_module
 from windows_navigator.models import TabInfo
 from windows_navigator.tabs import (
-    _cache_file_path,
     _collect_tab_items,
     _domain_from_full_description,
     _domain_from_url,
     _find_address_bar_url,
     _get_children,
     _is_tab_selected,
-    _load_tab_domain_cache,
-    _save_tab_domain_cache,
     _UIA_DocumentControlTypeId,
     _UIA_EditControlTypeId,
     _UIA_FullDescriptionPropertyId,
@@ -611,10 +607,7 @@ def test_fetch_tabs_domain_cache_restores_domain_for_inactive_tab():
         active_index=0,
         active_url="www.dr.dk/nyheder",
     )
-    with (
-        patch("windows_navigator.tabs._create_uia", return_value=mock_uia_1),
-        patch("windows_navigator.tabs._save_tab_domain_cache"),
-    ):
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia_1):
         fetch_tabs(hwnd=10)
 
     # Second open: Gmail is now active. DR News is inactive → no URL bar domain.
@@ -623,10 +616,7 @@ def test_fetch_tabs_domain_cache_restores_domain_for_inactive_tab():
         active_index=1,
         active_url="mail.google.com",
     )
-    with (
-        patch("windows_navigator.tabs._create_uia", return_value=mock_uia_2),
-        patch("windows_navigator.tabs._save_tab_domain_cache"),
-    ):
+    with patch("windows_navigator.tabs._create_uia", return_value=mock_uia_2):
         result = fetch_tabs(hwnd=10)
 
     dr_tab = next(t for t in result if t.name == "DR News")
@@ -634,89 +624,3 @@ def test_fetch_tabs_domain_cache_restores_domain_for_inactive_tab():
     assert dr_tab.domain == "www.dr.dk"
     assert gmail_tab.domain == "mail.google.com"
 
-
-# ---------------------------------------------------------------------------
-# _cache_file_path / _load_tab_domain_cache / _save_tab_domain_cache
-# ---------------------------------------------------------------------------
-
-
-def test_cache_file_path_uses_appdata(tmp_path):
-    with patch.dict("os.environ", {"APPDATA": str(tmp_path)}):
-        path = _cache_file_path()
-    assert path == tmp_path / "windows-navigator" / "tab_domain_cache.json"
-
-
-def test_cache_file_path_falls_back_to_home_config(tmp_path):
-    env = {k: v for k, v in __import__("os").environ.items() if k != "APPDATA"}
-    with (
-        patch.dict("os.environ", env, clear=True),
-        patch("windows_navigator.tabs.Path.home", return_value=tmp_path),
-    ):
-        path = _cache_file_path()
-    assert path == tmp_path / ".config" / "windows-navigator" / "tab_domain_cache.json"
-
-
-def test_save_and_load_roundtrip(tmp_path):
-    tabs_module._tab_domain_cache.clear()
-    tabs_module._tab_domain_cache["DR News"] = "www.dr.dk"
-    tabs_module._tab_domain_cache["Gmail"] = "mail.google.com"
-
-    with patch(
-        "windows_navigator.tabs._cache_file_path", return_value=tmp_path / "tab_domain_cache.json"
-    ):
-        _save_tab_domain_cache(dict(tabs_module._tab_domain_cache))
-        tabs_module._tab_domain_cache.clear()
-        _load_tab_domain_cache()
-
-    assert tabs_module._tab_domain_cache.get("DR News") == "www.dr.dk"
-    assert tabs_module._tab_domain_cache.get("Gmail") == "mail.google.com"
-
-
-def test_load_ignores_missing_file(tmp_path):
-    tabs_module._tab_domain_cache.clear()
-    with patch(
-        "windows_navigator.tabs._cache_file_path", return_value=tmp_path / "nonexistent.json"
-    ):
-        _load_tab_domain_cache()  # must not raise
-    assert len(tabs_module._tab_domain_cache) == 0
-
-
-def test_load_ignores_corrupt_file(tmp_path):
-    bad = tmp_path / "tab_domain_cache.json"
-    bad.write_text("not json {{{", encoding="utf-8")
-    tabs_module._tab_domain_cache.clear()
-    with patch("windows_navigator.tabs._cache_file_path", return_value=bad):
-        _load_tab_domain_cache()  # must not raise
-    assert len(tabs_module._tab_domain_cache) == 0
-
-
-def test_fetch_tabs_saves_cache_on_new_domain(tmp_path):
-    tabs_module._tab_domain_cache.clear()
-    cache_path = tmp_path / "tab_domain_cache.json"
-    mock_uia = _make_firefox_tree(["DR News"], active_index=0, active_url="www.dr.dk")
-
-    with (
-        patch("windows_navigator.tabs._create_uia", return_value=mock_uia),
-        patch("windows_navigator.tabs._cache_file_path", return_value=cache_path),
-    ):
-        fetch_tabs(hwnd=10)
-
-    assert cache_path.exists()
-    data = json.loads(cache_path.read_text(encoding="utf-8"))
-    assert data.get("DR News") == "www.dr.dk"
-
-
-def test_fetch_tabs_does_not_save_when_domain_unchanged(tmp_path):
-    tabs_module._tab_domain_cache.clear()
-    tabs_module._tab_domain_cache["DR News"] = "www.dr.dk"
-    cache_path = tmp_path / "tab_domain_cache.json"
-    mock_uia = _make_firefox_tree(["DR News"], active_index=0, active_url="www.dr.dk")
-
-    with (
-        patch("windows_navigator.tabs._create_uia", return_value=mock_uia),
-        patch("windows_navigator.tabs._cache_file_path", return_value=cache_path),
-        patch("windows_navigator.tabs._save_tab_domain_cache") as mock_save,
-    ):
-        fetch_tabs(hwnd=10)
-
-    mock_save.assert_not_called()
