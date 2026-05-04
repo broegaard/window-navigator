@@ -69,6 +69,9 @@ class TabControllerProtocol(Protocol):
     def total_tab_count(self) -> int: ...
 
     @property
+    def filtered_tab_count(self) -> int: ...
+
+    @property
     def current_desktop_window_count(self) -> int: ...
 
     @property
@@ -234,6 +237,11 @@ class OverlayController:
     def total_tab_count(self) -> int:
         """Total number of tabs loaded across all windows."""
         return sum(len(tabs) for tabs in self._tabs.values())
+
+    @property
+    def filtered_tab_count(self) -> int:
+        """Total tabs loaded for windows currently passing all filters."""
+        return sum(len(self._tabs.get(w.hwnd, [])) for w in self.filtered_windows)
 
     @property
     def current_desktop_window_count(self) -> int:
